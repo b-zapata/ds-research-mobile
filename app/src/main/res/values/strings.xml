@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">OneSecClone</string>
+
+    <string-array name="view_modes">
+        <item>Daily Totals</item>
+        <item>Sessions</item>
+    </string-array>
+</resources>

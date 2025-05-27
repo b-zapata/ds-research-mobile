@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/navigation_home">
+
+    <fragment
+        android:id="@+id/navigation_home"
+        android:name="com.example.onesecclone.HomeFragment"
+        android:label="Home" />
+
+    <fragment
+        android:id="@+id/navigation_study"
+        android:name="com.example.onesecclone.StudyInfoFragment"
+        android:label="Study Info" />
+
+    <fragment
+        android:id="@+id/screenTimeFragment"
+        android:name="com.example.onesecclone.ScreenTimeFragment"
+        android:label="Screen Time"
+        tools:layout="@layout/fragment_screen_time" />
+
+    <fragment
+        android:id="@+id/navigation_help"
+        android:name="com.example.onesecclone.HelpFragment"
+        android:label="Help" />
+
+    <fragment
+        android:id="@+id/navigation_videos"
+        android:name="com.example.onesecclone.VideoPlayerFragment"
+        android:label="Videos" />
+
+</navigation>

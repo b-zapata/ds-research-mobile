@@ -1,0 +1,22 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navigation_home"
+        android:icon="@android:drawable/ic_menu_view"
+        android:title="Home" />
+    <item
+        android:id="@+id/navigation_study"
+        android:icon="@android:drawable/ic_menu_info_details"
+        android:title="Study Info" />
+    <item
+        android:id="@+id/screenTimeFragment"
+        android:icon="@android:drawable/ic_lock_idle_alarm"
+        android:title="Screen Time" />
+    <item
+        android:id="@+id/navigation_videos"
+        android:icon="@android:drawable/ic_media_play"
+        android:title="Videos" />
+    <item
+        android:id="@+id/navigation_help"
+        android:icon="@android:drawable/ic_menu_help"
+        android:title="Help" />
+</menu>
