@@ -1,104 +1,125 @@
 package com.example.onesecclone
 
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
+import android.content.Intent
+import android.os.IBinder
 import android.app.usage.UsageStatsManager
 import android.content.Context
-import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.Handler
-import android.os.IBinder
-import androidx.core.app.NotificationCompat
+import android.os.PowerManager
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.*
+import java.util.concurrent.TimeUnit
 
 class MainService : Service() {
+    private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
+    private var isMonitoring = true
 
-    private val handler = Handler()
-    private var lastPackage: String? = null
-    private var overlayShownTime: Long = 0L
-    private val targetApps = listOf(
-        "com.instagram.android",
-        "com.zhiliaoapp.musically" // TikTok
-    )
+    override fun onCreate() {
+        super.onCreate()
+        startForeground()
+    }
 
-    private val checkRunnable = object : Runnable {
-        override fun run() {
-            val topApp = getForegroundApp()
-            Log.d("OneSecClone", "Foreground app: $topApp")
+    private fun startForeground() {
+        val channelId = createNotificationChannel()
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("App Monitor")
+            .setContentText("Monitoring is active")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .build()
 
-            val currentTime = System.currentTimeMillis()
-            if (topApp != null && targetApps.contains(topApp)) {
-                if (currentTime - overlayShownTime >= 10000) { // 10 seconds
-                    overlayShownTime = currentTime
-                    Log.d("OneSecClone", "Launching overlay for $topApp")
+        startForeground(NOTIFICATION_ID, notification)
+    }
 
-                    val intent = Intent(this@MainService, OverlayActivity::class.java)
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-                    val pendingIntent = PendingIntent.getActivity(
-                        this@MainService,
-                        0,
-                        intent,
-                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                    )
-                    pendingIntent.send()
-                }
-            }
-
-            handler.postDelayed(this, 1000)
+    private fun createNotificationChannel(): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channelId = "MainServiceChannel"
+            val channelName = "Main Service Channel"
+            val channel = NotificationChannel(
+                channelId,
+                channelName,
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
+            return channelId
         }
+        return ""
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        createNotificationChannel()
-
-        val notification = NotificationCompat.Builder(this, "onesec_service_channel")
-            .setContentTitle("OneSec Clone is running")
-            .setContentText("Monitoring app usage...")
-            .setSmallIcon(android.R.drawable.ic_popup_sync)
-            .build()
-
-        startForeground(
-            1,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        )
-
-        handler.post(checkRunnable)
+        startMonitoring()
         return START_STICKY
     }
 
-    override fun onDestroy() {
-        handler.removeCallbacks(checkRunnable)
-        super.onDestroy()
-    }
+    private fun startMonitoring() {
+        serviceScope.launch {
+            while (isMonitoring) {
+                if (isScreenOn()) {
+                    val currentApp = getCurrentAppPackage()
+                    if (currentApp == "com.instagram.android") {
+                        val currentTime = System.currentTimeMillis()
+                        val timeSinceLastSkip = currentTime - OverlayService.getLastSkipTime()
 
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    private fun getForegroundApp(): String? {
-        val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val time = System.currentTimeMillis()
-        val usageStats = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            time - 1000 * 10,
-            time
-        )
-        val recentUsage = usageStats.maxByOrNull { it.lastTimeUsed }
-        return recentUsage?.packageName
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                "onesec_service_channel",
-                "OneSec Background Service",
-                NotificationManager.IMPORTANCE_DEFAULT
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+                        if (!isServiceRunning(OverlayService::class.java) &&
+                            timeSinceLastSkip >= OverlayService.COOLDOWN_PERIOD) {
+                            val overlayIntent = Intent(this@MainService, OverlayService::class.java)
+                            startService(overlayIntent)
+                        }
+                    }
+                }
+                delay(1000)
+            }
         }
+    }
+
+    private fun isScreenOn(): Boolean {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isInteractive
+    }
+
+    private fun getCurrentAppPackage(): String {
+        val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val endTime = System.currentTimeMillis()
+        val startTime = endTime - TimeUnit.MILLISECONDS.convert(1, TimeUnit.SECONDS)
+
+        val queryUsageStats = usageStatsManager.queryUsageStats(
+            UsageStatsManager.INTERVAL_DAILY, startTime, endTime
+        )
+
+        return queryUsageStats
+            ?.maxByOrNull { it.lastTimeUsed }
+            ?.packageName ?: ""
+    }
+
+    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
+        val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        return manager.getRunningServices(Integer.MAX_VALUE)
+            .any { it.service.className == serviceClass.name }
+    }
+
+    private fun startOverlayService() {
+        val overlayIntent = Intent(this, OverlayService::class.java)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startForegroundService(overlayIntent)
+        } else {
+            startService(overlayIntent)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        isMonitoring = false
+        serviceScope.cancel()
+    }
+
+    override fun onBind(intent: Intent): IBinder? = null
+
+    companion object {
+        private const val NOTIFICATION_ID = 1001
     }
 }

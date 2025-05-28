@@ -2,11 +2,14 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.example.onesecclone">
 
-    <!-- Permissions -->
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    <!-- Permissions --><!-- Permissions -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /> <!-- ✅ Add this here -->
 
     <application
@@ -38,13 +41,21 @@
             android:name=".OverlayActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen"
             android:excludeFromRecents="true"
-            android:taskAffinity="" />
+            android:taskAffinity=".instagram"
+            android:allowTaskReparenting="true"
+            android:launchMode="singleInstance" />
 
         <!-- Background service -->
         <service
             android:name=".MainService"
             android:exported="false"
             android:foregroundServiceType="specialUse" />
+
+        <service
+            android:name=".OverlayService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- ✅ Boot Receiver -->
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
