@@ -1,3 +1,5 @@
+// This file is currently deprecated. We are using "OverlayService.kt" instead. We are keeping this file just in case.
+
 package com.example.onesecclone
 
 import android.app.ActivityManager
