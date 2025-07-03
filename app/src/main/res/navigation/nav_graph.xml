@@ -28,7 +28,7 @@
 
     <fragment
         android:id="@+id/navigation_videos"
-        android:name="com.example.onesecclone.VideoPlayerFragment"
+        android:name="com.example.onesecclone.VideoFragment"
         android:label="Videos" />
 
 </navigation>

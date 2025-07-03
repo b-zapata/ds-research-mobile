@@ -10,7 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
-class VideoPlayerFragment : Fragment() {
+class VideoFragment : Fragment() {
     private var player: ExoPlayer? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -36,3 +36,4 @@ class VideoPlayerFragment : Fragment() {
         player = null
     }
 }
+
