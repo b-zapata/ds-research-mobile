@@ -1,4 +1,5 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/screen_time_container"
     android:orientation="vertical"
     android:layout_width="match_parent"
@@ -6,20 +7,39 @@
     android:padding="16dp"
     android:paddingTop="72dp">
 
-
-    <Spinner
-        android:id="@+id/view_mode_spinner"
-        android:layout_width="wrap_content"
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tab_layout"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:entries="@array/view_modes"
-        android:layout_marginTop="32dp" />
+        android:layout_marginTop="16dp"
+        app:tabMode="fixed"
+        app:tabGravity="fill"
+        app:tabTextColor="@android:color/black"
+        app:tabSelectedTextColor="@color/purple_500"
+        app:tabIndicatorColor="@color/purple_500">
 
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Daily Totals" />
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Sessions" />
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Analytics" />
+    </com.google.android.material.tabs.TabLayout>
 
     <ScrollView
         android:id="@+id/scroll_usage"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:layout_marginTop="16dp"
         android:visibility="visible">
 
         <LinearLayout

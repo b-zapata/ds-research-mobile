@@ -12,21 +12,16 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.SystemClock
-import androidx.annotation.RequiresApi
 import kotlinx.coroutines.*
 import java.time.*
-import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.*
 import java.util.concurrent.TimeUnit
 
 class AnalyticsService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
-    private val handler = Handler(Looper.getMainLooper())
     private var hourlyJob: Job? = null
     private var dailyJob: Job? = null
     private val appSessions = mutableMapOf<String, MutableList<AnalyticsData.AppSession>>()
@@ -35,6 +30,7 @@ class AnalyticsService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        INSTANCE = this
         startDataCollection()
     }
 
@@ -68,7 +64,7 @@ class AnalyticsService : Service() {
             this,
             requestCode,
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         // Calculate time for 4 AM tomorrow
@@ -84,23 +80,54 @@ class AnalyticsService : Service() {
             }
         }
 
-        // Schedule the alarm to repeat daily
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(
+        // Check if we can schedule exact alarms on Android 12+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12+ requires special permission check
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        calendar.timeInMillis,
+                        pendingIntent
+                    )
+                } else {
+                    // Fallback to inexact alarm if exact alarms are not allowed
+                    alarmManager.setInexactRepeating(
+                        AlarmManager.RTC_WAKEUP,
+                        calendar.timeInMillis,
+                        AlarmManager.INTERVAL_DAY,
+                        pendingIntent
+                    )
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    calendar.timeInMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    calendar.timeInMillis,
+                    pendingIntent
+                )
+            }
+        } catch (e: SecurityException) {
+            // If we can't schedule exact alarms, use inexact as fallback
+            alarmManager.setInexactRepeating(
                 AlarmManager.RTC_WAKEUP,
                 calendar.timeInMillis,
-                pendingIntent
-            )
-        } else {
-            alarmManager.setExact(
-                AlarmManager.RTC_WAKEUP,
-                calendar.timeInMillis,
+                AlarmManager.INTERVAL_DAY,
                 pendingIntent
             )
         }
 
         // Register a broadcast receiver to handle our daily summary action
-        registerReceiver(dailySummaryReceiver, IntentFilter(ACTION_DAILY_SUMMARY))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(dailySummaryReceiver, IntentFilter(ACTION_DAILY_SUMMARY), Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(dailySummaryReceiver, IntentFilter(ACTION_DAILY_SUMMARY))
+        }
     }
 
     private val dailySummaryReceiver = object : BroadcastReceiver() {
@@ -115,23 +142,30 @@ class AnalyticsService : Service() {
         }
     }
 
-    companion object {
-        const val ACTION_DAILY_SUMMARY = "com.example.onesecclone.ACTION_DAILY_SUMMARY"
-    }
-
-    fun recordAppSession(appName: String, packageName: String) {
+    fun recordAppSession(appName: String, packageName: String, startTime: Long, endTime: Long) {
         try {
-            // Using the desugared time API with proper handling and error catching
-            val currentTime = ZonedDateTime.now()
+            val sessionStart = ZonedDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(startTime),
+                ZoneId.systemDefault()
+            )
+            val sessionEnd = ZonedDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(endTime),
+                ZoneId.systemDefault()
+            )
+
             val session = AnalyticsData.AppSession(
                 appName = appName,
                 packageName = packageName,
-                sessionStart = currentTime,
-                sessionEnd = currentTime // Will be updated when session ends
+                sessionStart = sessionStart,
+                sessionEnd = sessionEnd
             )
             appSessions.getOrPut(packageName) { mutableListOf() }.add(session)
+
+            // Send immediately for real-time tracking
+            serviceScope.launch {
+                sendDataToServer(session)
+            }
         } catch (e: Exception) {
-            // Fallback using system time if ZonedDateTime has issues
             println("Error recording app session: ${e.message}")
         }
     }
@@ -185,7 +219,7 @@ class AnalyticsService : Service() {
         }
     }
 
-    private suspend fun collectAndSendDeviceStatus() {
+    private fun collectAndSendDeviceStatus() {
         try {
             val deviceStatus = AnalyticsData.DeviceStatus(
                 batteryLevel = getBatteryLevel(),
@@ -195,13 +229,15 @@ class AnalyticsService : Service() {
                 appVersion = getAppVersion(),
                 lastBatchSent = ZonedDateTime.now()
             )
-            sendDataToServer(deviceStatus)
+            serviceScope.launch {
+                sendDataToServer(deviceStatus)
+            }
         } catch (e: Exception) {
             println("Error collecting device status: ${e.message}")
         }
     }
 
-    private suspend fun generateAndSendDailySummary() {
+    private fun generateAndSendDailySummary() {
         try {
             val appTotals = mutableMapOf<String, AnalyticsData.AppStats>()
 
@@ -239,7 +275,9 @@ class AnalyticsService : Service() {
                 appTotals = appTotals
             )
 
-            sendDataToServer(summary)
+            serviceScope.launch {
+                sendDataToServer(summary)
+            }
 
             // Clear daily data after sending
             clearDailyData()
@@ -312,7 +350,29 @@ class AnalyticsService : Service() {
 
     private fun sendDataToServer(data: AnalyticsData) {
         // TODO: Implement actual server communication
-        // For now, we'll just log the data
+        // For now, we'll log the data with detailed Android logging
+        android.util.Log.i("AnalyticsService", "📊 ANALYTICS DATA RECORDED:")
+        when (data) {
+            is AnalyticsData.AppSession -> {
+                android.util.Log.i("AnalyticsService", "📱 APP SESSION: ${data.appName} (${data.packageName})")
+                android.util.Log.i("AnalyticsService", "   ⏰ Duration: ${ChronoUnit.MINUTES.between(data.sessionStart, data.sessionEnd)} minutes")
+            }
+            is AnalyticsData.AppTap -> {
+                android.util.Log.i("AnalyticsService", "👆 APP TAP: ${data.appName} at ${data.timestamp}")
+            }
+            is AnalyticsData.Intervention -> {
+                android.util.Log.i("AnalyticsService", "🎬 INTERVENTION: ${data.appName} - ${data.buttonClicked}")
+                android.util.Log.i("AnalyticsService", "   📺 Video: ${data.videoDuration}s, Required: ${data.requiredWatchTime}s")
+            }
+            is AnalyticsData.DeviceStatus -> {
+                android.util.Log.i("AnalyticsService", "🔋 DEVICE STATUS: Battery ${data.batteryLevel}%, ${data.connectionType}")
+            }
+            is AnalyticsData.DailySummary -> {
+                android.util.Log.i("AnalyticsService", "📊 DAILY SUMMARY: ${data.date}")
+                android.util.Log.i("AnalyticsService", "   📱 Total screen time: ${data.totalScreenTime} minutes")
+                android.util.Log.i("AnalyticsService", "   📋 Apps tracked: ${data.appTotals.size}")
+            }
+        }
         println("Ready to send data: $data")
     }
 
@@ -321,5 +381,64 @@ class AnalyticsService : Service() {
         hourlyJob?.cancel()
         dailyJob?.cancel()
         serviceScope.cancel()
+        INSTANCE = null
+    }
+
+    companion object {
+        const val ACTION_DAILY_SUMMARY = "com.example.onesecclone.ACTION_DAILY_SUMMARY"
+
+        @Volatile
+        private var INSTANCE: AnalyticsService? = null
+
+        fun getInstance(): AnalyticsService? = INSTANCE
+
+        // Static methods for easy access from other services
+        fun recordAppSessionStatic(appName: String, packageName: String, startTime: Long, endTime: Long) {
+            getInstance()?.recordAppSession(appName, packageName, startTime, endTime)
+        }
+
+        fun recordAppTapStatic(appName: String, packageName: String) {
+            getInstance()?.recordAppTap(appName, packageName)
+        }
+
+        fun recordInterventionStatic(
+            appName: String,
+            interventionType: String,
+            videoDuration: Int? = null,
+            requiredWatchTime: Int? = null,
+            buttonClicked: String
+        ) {
+            getInstance()?.recordIntervention(appName, interventionType, videoDuration, requiredWatchTime, buttonClicked)
+        }
+
+        // Debug method to check current analytics counts
+        fun getAnalyticsCounts(): String {
+            val instance = getInstance()
+            return if (instance != null) {
+                val sessionCount = instance.appSessions.values.sumOf { it.size }
+                val tapCount = instance.appTaps.values.sumOf { it.size }
+                val interventionCount = instance.interventions.values.sumOf { it.size }
+                "📊 Analytics Status: $sessionCount sessions, $tapCount taps, $interventionCount interventions"
+            } else {
+                "❌ AnalyticsService not running"
+            }
+        }
+
+        // Public methods to access analytics data for UI display
+        fun getSessionCount(): Int = getInstance()?.appSessions?.values?.sumOf { it.size } ?: 0
+        fun getTapCount(): Int = getInstance()?.appTaps?.values?.sumOf { it.size } ?: 0
+        fun getInterventionCount(): Int = getInstance()?.interventions?.values?.sumOf { it.size } ?: 0
+
+        fun getRecentSessions(limit: Int = 5): List<AnalyticsData.AppSession> {
+            return getInstance()?.appSessions?.values?.flatten()?.takeLast(limit) ?: emptyList()
+        }
+
+        fun getRecentTaps(limit: Int = 5): List<AnalyticsData.AppTap> {
+            return getInstance()?.appTaps?.values?.flatten()?.takeLast(limit) ?: emptyList()
+        }
+
+        fun getRecentInterventions(limit: Int = 5): List<AnalyticsData.Intervention> {
+            return getInstance()?.interventions?.values?.flatten()?.takeLast(limit) ?: emptyList()
+        }
     }
 }

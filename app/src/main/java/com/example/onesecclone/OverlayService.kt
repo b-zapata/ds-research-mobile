@@ -1,5 +1,3 @@
-// This file is currently deprecated. We are using "OverlayService.kt" instead. We are keeping this file just in case.
-
 package com.example.onesecclone
 
 import android.app.ActivityManager
@@ -24,15 +22,21 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.example.onesecclone.analytics.AnalyticsService
 
 class OverlayService : Service() {
     private var overlayView: View? = null
     private var windowManager: WindowManager? = null
     private var player: ExoPlayer? = null
     private var countdownTimer: CountDownTimer? = null
+    private var interventionStartTime: Long = 0
+    private var videoStartTime: Long = 0
+    private var videoDuration: Long = 0
+    private var wasVideoWatched: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
+        interventionStartTime = System.currentTimeMillis()
         startForeground()
         showOverlay()
     }
@@ -106,6 +110,8 @@ class OverlayService : Service() {
         skipButton?.isEnabled = false
 
         closeButton?.setOnClickListener {
+            recordIntervention("Close app")
+
             player?.stop()
             player?.release()
             player = null
@@ -131,7 +137,9 @@ class OverlayService : Service() {
         }
 
         skipButton?.setOnClickListener {
-            updateLastSkipTime() // Add this line
+            recordIntervention("Skip to app")
+
+            updateLastSkipTime()
             player?.release()
             stopSelf()
         }
@@ -146,6 +154,7 @@ class OverlayService : Service() {
             override fun onFinish() {
                 skipButton?.text = "Skip video"
                 skipButton?.isEnabled = true
+                wasVideoWatched = true
             }
         }.start()
     }
@@ -163,6 +172,8 @@ class OverlayService : Service() {
             player?.playWhenReady = true
             player?.volume = 1f
 
+            videoStartTime = System.currentTimeMillis()
+
             player?.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) {
                     when (state) {
@@ -170,10 +181,13 @@ class OverlayService : Service() {
                             Log.d("OverlayService", "Player state: IDLE")
                         Player.STATE_BUFFERING ->
                             Log.d("OverlayService", "Player state: BUFFERING")
-                        Player.STATE_READY ->
+                        Player.STATE_READY -> {
                             Log.d("OverlayService", "Player state: READY")
+                            videoDuration = player?.duration ?: 0
+                        }
                         Player.STATE_ENDED -> {
                             Log.d("OverlayService", "Player state: ENDED")
+                            recordIntervention("Video completed")
                             stopSelf()
                         }
                     }
@@ -181,6 +195,7 @@ class OverlayService : Service() {
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                     Log.e("OverlayService", "Player error: ${error.message}")
+                    recordIntervention("Video error")
                     stopSelf()
                 }
             })
@@ -189,6 +204,25 @@ class OverlayService : Service() {
         } catch (e: Exception) {
             Log.e("OverlayService", "Failed to initialize player", e)
             stopSelf()
+        }
+    }
+
+    private fun recordIntervention(buttonClicked: String) {
+        try {
+            val interventionEndTime = System.currentTimeMillis()
+            val watchTime = if (wasVideoWatched) 10000 else (System.currentTimeMillis() - videoStartTime).coerceAtLeast(0)
+
+            AnalyticsService.recordInterventionStatic(
+                appName = "Instagram",
+                interventionType = "video_delay",
+                videoDuration = (videoDuration / 1000).toInt(),
+                requiredWatchTime = 10,
+                buttonClicked = buttonClicked
+            )
+
+            Log.d("OverlayService", "Recorded intervention: $buttonClicked, watchTime: ${watchTime}ms")
+        } catch (e: Exception) {
+            Log.e("OverlayService", "Error recording intervention", e)
         }
     }
 
@@ -214,7 +248,7 @@ class OverlayService : Service() {
     companion object {
         private const val NOTIFICATION_ID = 1002
         private var lastSkipTime = 0L
-        const val COOLDOWN_PERIOD = 15000L // 15 seconds in milliseconds
+        const val COOLDOWN_PERIOD = 15000L
 
         fun getLastSkipTime(): Long = lastSkipTime
         fun updateLastSkipTime() {

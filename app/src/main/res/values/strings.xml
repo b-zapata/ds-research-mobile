@@ -4,5 +4,6 @@
     <string-array name="view_modes">
         <item>Daily Totals</item>
         <item>Sessions</item>
+        <item>Analytics Data</item>
     </string-array>
 </resources>

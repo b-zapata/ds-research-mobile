@@ -16,13 +16,13 @@ class MainDashboardActivity : AppCompatActivity() {
         // Start the main monitoring service that detects Instagram usage
         startService(Intent(this, MainService::class.java))
 
-        // Start analytics service - TEMPORARILY DISABLED FOR TESTING
-        // startService(Intent(this, AnalyticsService::class.java))
+        // Start analytics service
+        startService(Intent(this, AnalyticsService::class.java))
 
+        // Set up navigation
         val navHostFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
         val navController = navHostFragment.navController
-
-        val navView: BottomNavigationView = findViewById(R.id.nav_view)
-        navView.setupWithNavController(navController)
+        val bottomNav = findViewById<BottomNavigationView>(R.id.nav_view)
+        bottomNav.setupWithNavController(navController)
     }
 }
