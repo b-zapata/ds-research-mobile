@@ -16,15 +16,35 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Add environment variables as build config fields
+        buildConfigField("String", "SERVER_URL", "\"${System.getenv("SERVER_URL") ?: ""}\"")
+        buildConfigField("String", "API_KEY", "\"${System.getenv("API_KEY") ?: ""}\"")
     }
 
     buildTypes {
+        debug {
+            // Development configuration
+            buildConfigField("String", "SERVER_URL", "\"${System.getenv("DEV_SERVER_URL") ?: "http://localhost:8080/"}\"")
+            buildConfigField("String", "BUILD_ENVIRONMENT", "\"development\"")
+        }
+
+        create("staging") {
+            initWith(getByName("debug"))
+            buildConfigField("String", "SERVER_URL", "\"${System.getenv("STAGING_SERVER_URL") ?: "https://staging.your-domain.com/"}\"")
+            buildConfigField("String", "BUILD_ENVIRONMENT", "\"staging\"")
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+        }
+
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("String", "SERVER_URL", "\"${System.getenv("PROD_SERVER_URL") ?: "https://your-domain.com/"}\"")
+            buildConfigField("String", "BUILD_ENVIRONMENT", "\"production\"")
         }
     }
 
@@ -40,12 +60,20 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true  // Enable BuildConfig generation
     }
 }
 
 dependencies {
     // Add desugaring support for Java 8 Time API
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+
+    // Networking dependencies for server communication
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("com.google.code.gson:gson:2.10.1")
 
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:12.1.0")
     implementation("androidx.media3:media3-exoplayer:1.3.1")

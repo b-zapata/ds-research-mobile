@@ -40,6 +40,13 @@ sealed class AnalyticsData {
         val lastBatchSent: ZonedDateTime
     ) : AnalyticsData()
 
+    data class DailySummary(
+        val eventType: String = "daily_summary",
+        val date: String,
+        val totalScreenTime: Int,
+        val appTotals: Map<String, AppStats>
+    ) : AnalyticsData()
+
     data class AppStats(
         val minutes: Int,
         val sessions: Int,
@@ -48,11 +55,4 @@ sealed class AnalyticsData {
         val totalAbandonments: Int,
         val totalInterruptions: Int
     )
-
-    data class DailySummary(
-        val eventType: String = "daily_summary",
-        val date: String,
-        val totalScreenTime: Int,
-        val appTotals: Map<String, AppStats>
-    ) : AnalyticsData()
 }
