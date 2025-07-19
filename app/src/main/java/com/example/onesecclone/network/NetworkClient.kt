@@ -4,11 +4,19 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.provider.Settings
 import com.example.onesecclone.config.AppConfig
+import com.example.onesecclone.analytics.AnalyticsData
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonSerializationContext
+import com.google.gson.JsonSerializer
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.lang.reflect.Type
 import java.util.concurrent.TimeUnit
 
 class NetworkClient private constructor(private val context: Context) {
@@ -54,10 +62,64 @@ class NetworkClient private constructor(private val context: Context) {
         .retryOnConnectionFailure(true)
         .build()
 
+    // Custom Gson serializer for AnalyticsData sealed class
+    private val analyticsDataSerializer = object : JsonSerializer<AnalyticsData> {
+        override fun serialize(src: AnalyticsData, typeOfSrc: Type, context: JsonSerializationContext): JsonElement {
+            val jsonObject = JsonObject()
+
+            when (src) {
+                is AnalyticsData.AppSession -> {
+                    jsonObject.addProperty("eventType", src.eventType)
+                    jsonObject.addProperty("appName", src.appName)
+                    jsonObject.addProperty("packageName", src.packageName)
+                    jsonObject.addProperty("sessionStart", src.sessionStart)
+                    jsonObject.addProperty("sessionEnd", src.sessionEnd)
+                }
+                is AnalyticsData.AppTap -> {
+                    jsonObject.addProperty("eventType", src.eventType)
+                    jsonObject.addProperty("timestamp", src.timestamp)
+                    jsonObject.addProperty("appName", src.appName)
+                    jsonObject.addProperty("packageName", src.packageName)
+                }
+                is AnalyticsData.Intervention -> {
+                    jsonObject.addProperty("eventType", src.eventType)
+                    jsonObject.addProperty("interventionStart", src.interventionStart)
+                    jsonObject.addProperty("interventionEnd", src.interventionEnd)
+                    jsonObject.addProperty("appName", src.appName)
+                    jsonObject.addProperty("interventionType", src.interventionType)
+                    if (src.videoDuration != null) jsonObject.addProperty("videoDuration", src.videoDuration)
+                    if (src.requiredWatchTime != null) jsonObject.addProperty("requiredWatchTime", src.requiredWatchTime)
+                    jsonObject.addProperty("buttonClicked", src.buttonClicked)
+                }
+                is AnalyticsData.DeviceStatus -> {
+                    jsonObject.addProperty("eventType", src.eventType)
+                    jsonObject.addProperty("batteryLevel", src.batteryLevel)
+                    jsonObject.addProperty("isCharging", src.isCharging)
+                    jsonObject.addProperty("connectionType", src.connectionType)
+                    jsonObject.addProperty("connectionStrength", src.connectionStrength)
+                    jsonObject.addProperty("appVersion", src.appVersion)
+                    jsonObject.addProperty("lastBatchSent", src.lastBatchSent)
+                }
+                is AnalyticsData.DailySummary -> {
+                    jsonObject.addProperty("eventType", src.eventType)
+                    jsonObject.addProperty("date", src.date)
+                    jsonObject.addProperty("totalScreenTime", src.totalScreenTime)
+                    jsonObject.add("appTotals", context.serialize(src.appTotals))
+                }
+            }
+
+            return jsonObject
+        }
+    }
+
+    private val gson = GsonBuilder()
+        .registerTypeAdapter(AnalyticsData::class.java, analyticsDataSerializer)
+        .create()
+
     private val retrofit = Retrofit.Builder()
         .baseUrl(getBaseUrl())
         .client(okHttpClient)
-        .addConverterFactory(GsonConverterFactory.create())
+        .addConverterFactory(GsonConverterFactory.create(gson))
         .build()
 
     val apiService: ApiService = retrofit.create(ApiService::class.java)

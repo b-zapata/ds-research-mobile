@@ -18,6 +18,10 @@ class DataSyncService private constructor(private val context: Context) {
         private var INSTANCE: DataSyncService? = null
         private const val TAG = "DataSyncService"
         private const val OFFLINE_DATA_DIR = "offline_analytics"
+        private const val MAX_RETRY_ATTEMPTS = 3
+        private const val RETRY_DELAY_MS = 5000L
+        private const val BATCH_SIZE = 10
+        private const val SYNC_INTERVAL_MS = 30000L // 30 seconds
 
         fun getInstance(context: Context): DataSyncService {
             return INSTANCE ?: synchronized(this) {
@@ -26,10 +30,12 @@ class DataSyncService private constructor(private val context: Context) {
         }
     }
 
-    private val networkClient = NetworkClient.getInstance(context)
     private val gson = Gson()
     private val offlineQueue = ConcurrentLinkedQueue<AnalyticsData>()
     private val syncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // Public access to networkClient for testing
+    val networkClient get() = NetworkClient.getInstance(context)
 
     init {
         loadOfflineData()
@@ -37,38 +43,128 @@ class DataSyncService private constructor(private val context: Context) {
     }
 
     /**
-     * Send analytics data to AWS EC2 server
+     * Enhanced send data with retry logic
      */
-    suspend fun sendData(data: AnalyticsData): Boolean {
+    suspend fun sendDataWithRetry(data: AnalyticsData, maxRetries: Int = MAX_RETRY_ATTEMPTS): Boolean {
+        return withContext(Dispatchers.IO) {
+            var attempts = 0
+            var lastException: Exception? = null
+
+            while (attempts < maxRetries) {
+                try {
+                    if (!isNetworkAvailable()) {
+                        Log.d(TAG, "No network available, queuing data offline (attempt ${attempts + 1})")
+                        queueDataOffline(data)
+                        return@withContext false
+                    }
+
+                    val eventType = when(data) {
+                        is AnalyticsData.AppSession -> data.eventType
+                        is AnalyticsData.AppTap -> data.eventType
+                        is AnalyticsData.Intervention -> data.eventType
+                        is AnalyticsData.DeviceStatus -> data.eventType
+                        is AnalyticsData.DailySummary -> data.eventType
+                    }
+
+                    Log.d(TAG, "Sending $eventType data (attempt ${attempts + 1}/$maxRetries)")
+                    val response = networkClient.apiService.sendAnalyticsData(data)
+
+                    if (response.isSuccessful) {
+                        val responseBody = response.body()
+                        if (responseBody?.success == true) {
+                            Log.i(TAG, "✅ Successfully sent $eventType data")
+                            return@withContext true
+                        } else {
+                            Log.w(TAG, "❌ Server rejected $eventType: ${responseBody?.message}")
+                        }
+                    } else {
+                        Log.w(TAG, "❌ HTTP error ${response.code()} for $eventType: ${response.message()}")
+                        // Log response body for debugging
+                        response.errorBody()?.string()?.let { errorBody ->
+                            Log.w(TAG, "Error response body: $errorBody")
+                        }
+                    }
+                } catch (e: Exception) {
+                    lastException = e
+                    val eventType = when(data) {
+                        is AnalyticsData.AppSession -> data.eventType
+                        is AnalyticsData.AppTap -> data.eventType
+                        is AnalyticsData.Intervention -> data.eventType
+                        is AnalyticsData.DeviceStatus -> data.eventType
+                        is AnalyticsData.DailySummary -> data.eventType
+                    }
+                    Log.e(TAG, "❌ Exception sending $eventType (attempt ${attempts + 1}): ${e.message}", e)
+                }
+
+                attempts++
+                if (attempts < maxRetries) {
+                    Log.d(TAG, "Retrying in ${RETRY_DELAY_MS}ms...")
+                    delay(RETRY_DELAY_MS)
+                }
+            }
+
+            val eventType = when(data) {
+                is AnalyticsData.AppSession -> data.eventType
+                is AnalyticsData.AppTap -> data.eventType
+                is AnalyticsData.Intervention -> data.eventType
+                is AnalyticsData.DeviceStatus -> data.eventType
+                is AnalyticsData.DailySummary -> data.eventType
+            }
+            Log.w(TAG, "❌ Failed to send $eventType after $maxRetries attempts, queuing offline")
+            queueDataOffline(data)
+            return@withContext false
+        }
+    }
+
+    /**
+     * Enhanced health check with detailed server verification
+     */
+    suspend fun performHealthCheck(): HealthCheckResult {
         return withContext(Dispatchers.IO) {
             try {
                 if (!isNetworkAvailable()) {
-                    Log.d(TAG, "No network available, queuing data offline")
-                    queueDataOffline(data)
-                    return@withContext false
+                    return@withContext HealthCheckResult(false, "No network connection available")
                 }
 
-                val response = networkClient.apiService.sendAnalyticsData(data)
-                val success = response.isSuccessful && response.body()?.success == true
+                val startTime = System.currentTimeMillis()
+                val response = networkClient.apiService.healthCheck()
+                val responseTime = System.currentTimeMillis() - startTime
 
-                if (success) {
-                    Log.d(TAG, "Successfully sent ${data::class.simpleName}")
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    if (body?.success == true) {
+                        Log.i(TAG, "✅ Health check passed (${responseTime}ms)")
+                        return@withContext HealthCheckResult(
+                            true,
+                            "Server healthy",
+                            responseTime,
+                            networkClient.getBaseUrl()
+                        )
+                    } else {
+                        return@withContext HealthCheckResult(false, "Server returned success=false")
+                    }
                 } else {
-                    Log.w(TAG, "Failed to send ${data::class.simpleName}, queuing offline")
-                    queueDataOffline(data)
+                    return@withContext HealthCheckResult(
+                        false,
+                        "HTTP ${response.code()}: ${response.message()}"
+                    )
                 }
-
-                success
             } catch (e: Exception) {
-                Log.e(TAG, "Error sending data: ${e.message}", e)
-                queueDataOffline(data)
-                false
+                Log.e(TAG, "❌ Health check failed: ${e.message}", e)
+                return@withContext HealthCheckResult(false, "Exception: ${e.message}")
             }
         }
     }
 
     /**
-     * Send batch data to AWS EC2 server
+     * Send analytics data to AWS EC2 server
+     */
+    suspend fun sendData(data: AnalyticsData): Boolean {
+        return sendDataWithRetry(data)
+    }
+
+    /**
+     * Send batch data to AWS EC2 server with improved chunking
      */
     suspend fun sendBatchData(dataList: List<AnalyticsData>): Boolean {
         return withContext(Dispatchers.IO) {
@@ -79,25 +175,99 @@ class DataSyncService private constructor(private val context: Context) {
                     return@withContext false
                 }
 
-                val batchData = BatchAnalyticsData(
-                    deviceId = networkClient.getDeviceId(),
-                    data = dataList,
-                    timestamp = ZonedDateTime.now().toString()
-                )
+                // Split large batches into smaller chunks for better reliability
+                val chunks = dataList.chunked(BATCH_SIZE)
+                var successCount = 0
+                var failedItems = mutableListOf<AnalyticsData>()
 
-                val response = networkClient.apiService.sendBatchData(batchData)
-                val success = response.isSuccessful && response.body()?.success == true
+                Log.d(TAG, "Sending ${dataList.size} items in ${chunks.size} chunks of max $BATCH_SIZE items")
 
-                if (success) {
-                    Log.d(TAG, "Successfully sent batch data with ${dataList.size} items")
-                } else {
-                    Log.w(TAG, "Failed to send batch data: ${response.errorBody()?.string()}")
-                    dataList.forEach { queueDataOffline(it) }
+                for ((index, chunk) in chunks.withIndex()) {
+                    try {
+                        Log.d(TAG, "Sending chunk ${index + 1}/${chunks.size} with ${chunk.size} items")
+
+                        val batchData = BatchAnalyticsData(
+                            deviceId = networkClient.getDeviceId(),
+                            data = chunk,
+                            timestamp = ZonedDateTime.now().toString()
+                        )
+
+                        val response = networkClient.apiService.sendBatchData(batchData)
+                        val success = response.isSuccessful && response.body()?.success == true
+
+                        if (success) {
+                            successCount++
+                            Log.d(TAG, "Successfully sent chunk ${index + 1} with ${chunk.size} items")
+                        } else {
+                            Log.w(TAG, "Batch failed for chunk ${index + 1}, trying individual requests: ${response.errorBody()?.string()}")
+
+                            // Fallback: try sending each item individually
+                            var individualSuccessCount = 0
+                            for (item in chunk) {
+                                try {
+                                    val individualSuccess = sendDataWithRetry(item, maxRetries = 1)
+                                    if (individualSuccess) {
+                                        individualSuccessCount++
+                                    } else {
+                                        failedItems.add(item)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Individual request failed for ${item::class.simpleName}: ${e.message}")
+                                    failedItems.add(item)
+                                }
+                            }
+
+                            if (individualSuccessCount == chunk.size) {
+                                successCount++
+                                Log.i(TAG, "✅ Chunk ${index + 1} succeeded via individual requests ($individualSuccessCount/${chunk.size})")
+                            } else {
+                                Log.w(TAG, "❌ Chunk ${index + 1} partially failed: $individualSuccessCount/${chunk.size} succeeded individually")
+                            }
+                        }
+
+                        // Add small delay between chunks to avoid overwhelming the server
+                        if (index < chunks.size - 1) {
+                            delay(1000) // 1 second delay between chunks
+                        }
+
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error sending chunk ${index + 1}: ${e.message}", e)
+
+                        // Fallback: try individual requests for this chunk too
+                        Log.d(TAG, "Trying individual requests for failed chunk ${index + 1}")
+                        var individualSuccessCount = 0
+                        for (item in chunk) {
+                            try {
+                                val individualSuccess = sendDataWithRetry(item, maxRetries = 1)
+                                if (individualSuccess) {
+                                    individualSuccessCount++
+                                } else {
+                                    failedItems.add(item)
+                                }
+                            } catch (ie: Exception) {
+                                Log.w(TAG, "Individual fallback failed for ${item::class.simpleName}: ${ie.message}")
+                                failedItems.add(item)
+                            }
+                        }
+
+                        if (individualSuccessCount == chunk.size) {
+                            successCount++
+                            Log.i(TAG, "✅ Chunk ${index + 1} recovered via individual requests ($individualSuccessCount/${chunk.size})")
+                        } else {
+                            Log.w(TAG, "❌ Chunk ${index + 1} recovery failed: $individualSuccessCount/${chunk.size} succeeded individually")
+                        }
+                    }
                 }
 
-                success
+                // Queue failed items for retry
+                failedItems.forEach { queueDataOffline(it) }
+
+                val overallSuccess = successCount == chunks.size
+                Log.d(TAG, "Batch operation complete: $successCount/${chunks.size} chunks successful")
+
+                overallSuccess
             } catch (e: Exception) {
-                Log.e(TAG, "Error sending batch data: ${e.message}", e)
+                Log.e(TAG, "Error in batch operation: ${e.message}", e)
                 dataList.forEach { queueDataOffline(it) }
                 false
             }
@@ -155,47 +325,77 @@ class DataSyncService private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * Enhanced periodic sync with better error handling
+     */
     private fun startPeriodicSync() {
         syncScope.launch {
             while (true) {
                 try {
                     if (isNetworkAvailable() && offlineQueue.isNotEmpty()) {
-                        Log.d(TAG, "Processing ${offlineQueue.size} queued items")
-                        processOfflineQueue()
+                        Log.d(TAG, "🔄 Starting periodic sync (${offlineQueue.size} items queued)")
+                        syncOfflineData()
                     }
+
+                    // Perform health check periodically
+                    val healthResult = performHealthCheck()
+                    if (!healthResult.isHealthy) {
+                        Log.w(TAG, "⚠️ Health check failed: ${healthResult.message}")
+                    }
+
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error in periodic sync: ${e.message}")
+                    Log.e(TAG, "Error in periodic sync: ${e.message}", e)
                 }
 
-                delay(60_000) // Check every minute
+                delay(SYNC_INTERVAL_MS)
             }
         }
     }
 
-    private suspend fun processOfflineQueue() {
-        val itemsToRemove = mutableListOf<AnalyticsData>()
+    /**
+     * Enhanced offline data sync with batching
+     */
+    private suspend fun syncOfflineData() {
+        val itemsToSync = mutableListOf<AnalyticsData>()
 
-        for (data in offlineQueue) {
-            try {
-                val response = networkClient.apiService.sendAnalyticsData(data)
-                val success = response.isSuccessful && response.body()?.success == true
-
-                if (success) {
-                    itemsToRemove.add(data)
-                    Log.d(TAG, "Successfully synced queued ${data::class.simpleName}")
-                }
-
-                delay(500) // Small delay between requests
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error processing queued item: ${e.message}")
+        // Collect items for batch processing
+        repeat(BATCH_SIZE) {
+            val item = offlineQueue.poll()
+            if (item != null) {
+                itemsToSync.add(item)
             }
         }
 
-        itemsToRemove.forEach { offlineQueue.remove(it) }
+        if (itemsToSync.isNotEmpty()) {
+            Log.d(TAG, "📤 Syncing ${itemsToSync.size} offline items")
+            val success = sendBatchData(itemsToSync)
 
-        if (itemsToRemove.isNotEmpty()) {
-            Log.d(TAG, "Removed ${itemsToRemove.size} items from offline queue")
+            if (!success) {
+                // Put items back in queue if batch failed
+                itemsToSync.forEach { offlineQueue.offer(it) }
+                Log.w(TAG, "❌ Batch sync failed, items returned to queue")
+            } else {
+                Log.i(TAG, "✅ Successfully synced ${itemsToSync.size} offline items")
+                // Clean up corresponding disk files
+                cleanupSyncedFiles(itemsToSync)
+            }
+        }
+    }
+
+    private fun cleanupSyncedFiles(syncedItems: List<AnalyticsData>) {
+        try {
+            val offlineDir = File(context.filesDir, OFFLINE_DATA_DIR)
+            if (!offlineDir.exists()) return
+
+            // This is a simplified cleanup - in practice you'd want to track which files correspond to which data
+            val files = offlineDir.listFiles()?.sortedBy { it.lastModified() }
+            files?.take(syncedItems.size)?.forEach { file ->
+                if (file.delete()) {
+                    Log.d(TAG, "🗑️ Cleaned up synced file: ${file.name}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning up synced files: ${e.message}")
         }
     }
 
@@ -227,3 +427,9 @@ class DataSyncService private constructor(private val context: Context) {
     }
 }
 
+data class HealthCheckResult(
+    val isHealthy: Boolean,
+    val message: String,
+    val responseTimeMs: Long = 0,
+    val serverUrl: String = ""
+)

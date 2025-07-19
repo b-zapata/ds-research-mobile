@@ -172,7 +172,8 @@ class ScreenTimeFragment : Fragment() {
         if (recentSessions.isNotEmpty()) {
             addSectionHeader(containerLayout, "📱 Recent App Sessions")
             recentSessions.forEach { session ->
-                val totalSeconds = java.time.temporal.ChronoUnit.SECONDS.between(session.sessionStart, session.sessionEnd)
+                val totalSeconds = java.time.temporal.ChronoUnit.SECONDS.between(
+                    session.getSessionStartTime(), session.getSessionEndTime())
                 val durationText = when {
                     totalSeconds < 60 -> "${totalSeconds}s"
                     totalSeconds < 3600 -> {
@@ -196,7 +197,7 @@ class ScreenTimeFragment : Fragment() {
             addSectionHeader(containerLayout, "👆 Recent App Taps")
             recentTaps.forEach { tap ->
                 val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-                val time = timeFormat.format(java.util.Date.from(tap.timestamp.toInstant()))
+                val time = timeFormat.format(java.util.Date.from(tap.getTimestamp().toInstant()))
                 addDataRow(containerLayout, tap.appName, "at $time")
             }
         }
@@ -207,7 +208,7 @@ class ScreenTimeFragment : Fragment() {
             addSectionHeader(containerLayout, "🎬 Recent Interventions")
             recentInterventions.forEach { intervention ->
                 val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-                val time = timeFormat.format(java.util.Date.from(intervention.interventionStart.toInstant()))
+                val time = timeFormat.format(java.util.Date.from(intervention.getInterventionStartTime().toInstant()))
                 addDataRow(containerLayout, "${intervention.appName} - ${intervention.buttonClicked}", "at $time")
             }
         }

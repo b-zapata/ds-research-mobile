@@ -62,6 +62,13 @@
             android:name=".analytics.AnalyticsService"
             android:exported="false" />
 
+        <!-- Debug/Test Activities (only in debug builds) -->
+        <activity
+            android:name=".debug.DataFlowTestActivity"
+            android:exported="false"
+            android:label="Data Flow Test"
+            android:theme="@style/Theme.OneSecClone" />
+
         <!-- Boot Receiver -->
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
             <intent-filter>

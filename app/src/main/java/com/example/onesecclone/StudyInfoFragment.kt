@@ -166,7 +166,7 @@ class StudyInfoFragment : Fragment() {
         // First, get data from AnalyticsService (if any)
         val sessions = AnalyticsService.getAllSessions()
         sessions.forEach { session ->
-            val sessionDate = session.sessionStart.toLocalDate()
+            val sessionDate = session.getSessionStartTime().toLocalDate()
             if (!sessionDate.isBefore(startDate) && !sessionDate.isAfter(endDate)) {
                 filteredData.add(session)
             }
@@ -174,7 +174,7 @@ class StudyInfoFragment : Fragment() {
 
         val taps = AnalyticsService.getAllTaps()
         taps.forEach { tap ->
-            val tapDate = tap.timestamp.toLocalDate()
+            val tapDate = tap.getTimestamp().toLocalDate()
             if (!tapDate.isBefore(startDate) && !tapDate.isAfter(endDate)) {
                 filteredData.add(tap)
             }
@@ -182,7 +182,7 @@ class StudyInfoFragment : Fragment() {
 
         val interventions = AnalyticsService.getAllInterventions()
         interventions.forEach { intervention ->
-            val interventionDate = intervention.interventionStart.toLocalDate()
+            val interventionDate = intervention.getInterventionStartTime().toLocalDate()
             if (!interventionDate.isBefore(startDate) && !interventionDate.isAfter(endDate)) {
                 filteredData.add(intervention)
             }
@@ -289,12 +289,12 @@ class StudyInfoFragment : Fragment() {
             
             Recent Sessions:
             ${AnalyticsService.getRecentSessions(3).joinToString("\n") { 
-                "• ${it.appName} - ${it.sessionStart.format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))}"
+                "• ${it.appName} - ${it.getSessionStartTime().format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))}"
             }}
             
             Recent Taps:
             ${AnalyticsService.getRecentTaps(3).joinToString("\n") { 
-                "• ${it.appName} - ${it.timestamp.format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))}"
+                "• ${it.appName} - ${it.getTimestamp().format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))}"
             }}
         """.trimIndent()
 

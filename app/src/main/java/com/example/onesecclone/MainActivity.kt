@@ -6,10 +6,19 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import com.example.onesecclone.debug.DataFlowTestActivity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Check if this is a debug build and add testing option
+        if (BuildConfig.DEBUG) {
+            // Add a small delay to show debug options
+            android.os.Handler(mainLooper).postDelayed({
+                showDebugOptions()
+            }, 2000)
+        }
 
         // Ask for usage access
         if (!hasUsageStatsPermission()) {
@@ -29,7 +38,25 @@ class MainActivity : ComponentActivity() {
 
         // Start the background service
         startService(Intent(this, MainService::class.java))
-        finish()
+
+        // Don't finish immediately in debug mode to allow testing
+        if (!BuildConfig.DEBUG) {
+            finish()
+        }
+    }
+
+    private fun showDebugOptions() {
+        val builder = android.app.AlertDialog.Builder(this)
+        builder.setTitle("Debug Options")
+        builder.setMessage("This is a debug build. Would you like to test the data flow to your EC2 server?")
+        builder.setPositiveButton("Test Data Flow") { _, _ ->
+            startActivity(Intent(this, DataFlowTestActivity::class.java))
+        }
+        builder.setNegativeButton("Continue Normally") { _, _ ->
+            finish()
+        }
+        builder.setCancelable(false)
+        builder.show()
     }
 
     private fun hasUsageStatsPermission(): Boolean {

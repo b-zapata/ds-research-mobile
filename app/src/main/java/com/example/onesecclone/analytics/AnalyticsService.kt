@@ -391,14 +391,14 @@ class AnalyticsService : Service() {
 
     private fun calculateTotalMinutes(sessions: List<AnalyticsData.AppSession>): Int {
         return sessions.sumOf { session ->
-            val minutes = ChronoUnit.MINUTES.between(session.sessionStart, session.sessionEnd)
+            val minutes = ChronoUnit.MINUTES.between(session.getSessionStartTime(), session.getSessionEndTime())
             minutes.toInt()
         }
     }
 
     private fun calculateTotalScreenTime(): Int {
         return appSessions.values.flatten().sumOf { session ->
-            val minutes = ChronoUnit.MINUTES.between(session.sessionStart, session.sessionEnd)
+            val minutes = ChronoUnit.MINUTES.between(session.getSessionStartTime(), session.getSessionEndTime())
             minutes.toInt()
         }
     }

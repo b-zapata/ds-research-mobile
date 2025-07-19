@@ -24,8 +24,8 @@ android {
 
     buildTypes {
         debug {
-            // Development configuration
-            buildConfigField("String", "SERVER_URL", "\"${System.getenv("DEV_SERVER_URL") ?: "http://localhost:8080/"}\"")
+            // Development configuration - using EC2 server
+            buildConfigField("String", "SERVER_URL", "\"${System.getenv("DEV_SERVER_URL") ?: "http://54.186.25.9:8080/"}\"")
             buildConfigField("String", "BUILD_ENVIRONMENT", "\"development\"")
         }
 
@@ -61,6 +61,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true  // Enable BuildConfig generation
+        dataBinding = true  // Enable data binding for test activity
     }
 }
 

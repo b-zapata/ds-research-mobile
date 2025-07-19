@@ -22,22 +22,13 @@ object AppConfig {
      * Gets the appropriate server URL based on build type and configuration
      */
     fun getServerUrl(context: Context): String {
-        // 1. First check if there's a custom URL set in the app
-        val networkClient = com.example.onesecclone.network.NetworkClient.getInstance(context)
-        val customUrl = networkClient.getBaseUrl()
-
-        // 2. If custom URL is not the old hard-coded one, use it
-        if (customUrl != "http://35.86.154.191:8080/" && customUrl.isNotEmpty()) {
-            return customUrl
-        }
-
-        // 3. Check build config for environment variables
+        // 1. Check build config for environment variables first
         val envUrl = getBuildConfigString("SERVER_URL")
         if (!envUrl.isNullOrEmpty()) {
             return envUrl
         }
 
-        // 4. Use default based on build type
+        // 2. Use default based on build type
         return when {
             BuildConfig.DEBUG -> DEFAULT_LOCAL_URL
             BuildConfig.BUILD_TYPE == "staging" -> DEFAULT_STAGING_URL
