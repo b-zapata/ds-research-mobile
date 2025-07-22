@@ -39,7 +39,7 @@ class DataSyncService private constructor(private val context: Context) {
 
     init {
         loadOfflineData()
-        startPeriodicSync()
+        // startPeriodicSync()  // DISABLED: This was causing duplicate sends every 30 seconds
     }
 
     /**

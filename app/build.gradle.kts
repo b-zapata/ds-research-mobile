@@ -25,7 +25,7 @@ android {
     buildTypes {
         debug {
             // Development configuration - using EC2 server
-            buildConfigField("String", "SERVER_URL", "\"${System.getenv("DEV_SERVER_URL") ?: "http://54.186.25.9:8080/"}\"")
+            buildConfigField("String", "SERVER_URL", "\"${System.getenv("DEV_SERVER_URL") ?: "http://54.149.247.183:8080/"}\"")
             buildConfigField("String", "BUILD_ENVIRONMENT", "\"development\"")
         }
 

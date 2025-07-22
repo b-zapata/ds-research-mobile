@@ -217,10 +217,11 @@ class OverlayService : Service() {
                 interventionType = "video_delay",
                 videoDuration = (videoDuration / 1000).toInt(),
                 requiredWatchTime = 10,
-                buttonClicked = buttonClicked
+                buttonClicked = buttonClicked,
+                interventionStartTime = interventionStartTime
             )
 
-            Log.d("OverlayService", "Recorded intervention: $buttonClicked, watchTime: ${watchTime}ms")
+            Log.d("OverlayService", "Recorded intervention: $buttonClicked, watchTime: ${watchTime}ms, duration: ${interventionEndTime - interventionStartTime}ms")
         } catch (e: Exception) {
             Log.e("OverlayService", "Error recording intervention", e)
         }

@@ -1,6 +1,7 @@
 package com.example.onesecclone
 
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
@@ -19,6 +20,7 @@ import com.example.onesecclone.network.DataSyncService
 import com.example.onesecclone.utils.UsagePermissionHelper
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -27,13 +29,19 @@ import java.util.*
 class StudyInfoFragment : Fragment() {
 
     private lateinit var btnStartDate: Button
+    private lateinit var btnStartTime: Button
     private lateinit var btnEndDate: Button
+    private lateinit var btnEndTime: Button
     private lateinit var btnSendBatch: Button
     private lateinit var tvStatus: TextView
     private lateinit var tvAnalyticsSummary: TextView
+    private lateinit var tvStartDateTime: TextView
+    private lateinit var tvEndDateTime: TextView
 
     private var startDate: LocalDate? = null
+    private var startTime: LocalTime? = null
     private var endDate: LocalDate? = null
+    private var endTime: LocalTime? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -43,10 +51,14 @@ class StudyInfoFragment : Fragment() {
 
         // Initialize views
         btnStartDate = view.findViewById(R.id.btnStartDate)
+        btnStartTime = view.findViewById(R.id.btnStartTime)
         btnEndDate = view.findViewById(R.id.btnEndDate)
+        btnEndTime = view.findViewById(R.id.btnEndTime)
         btnSendBatch = view.findViewById(R.id.btnSendBatch)
         tvStatus = view.findViewById(R.id.tvStatus)
         tvAnalyticsSummary = view.findViewById(R.id.tvAnalyticsSummary)
+        tvStartDateTime = view.findViewById(R.id.tvStartDateTime)
+        tvEndDateTime = view.findViewById(R.id.tvEndDateTime)
 
         setupClickListeners()
         updateAnalyticsSummary()
@@ -58,7 +70,17 @@ class StudyInfoFragment : Fragment() {
         btnStartDate.setOnClickListener {
             showDatePicker { date ->
                 startDate = date
-                btnStartDate.text = "Start: ${date.format(DateTimeFormatter.ISO_LOCAL_DATE)}"
+                btnStartDate.text = "Date: ${date.format(DateTimeFormatter.ofPattern("MM/dd/yyyy"))}"
+                updateDateTimeDisplay()
+                updateSendButtonState()
+            }
+        }
+
+        btnStartTime.setOnClickListener {
+            showTimePicker { time ->
+                startTime = time
+                btnStartTime.text = "Time: ${time.format(DateTimeFormatter.ofPattern("HH:mm"))}"
+                updateDateTimeDisplay()
                 updateSendButtonState()
             }
         }
@@ -66,7 +88,17 @@ class StudyInfoFragment : Fragment() {
         btnEndDate.setOnClickListener {
             showDatePicker { date ->
                 endDate = date
-                btnEndDate.text = "End: ${date.format(DateTimeFormatter.ISO_LOCAL_DATE)}"
+                btnEndDate.text = "Date: ${date.format(DateTimeFormatter.ofPattern("MM/dd/yyyy"))}"
+                updateDateTimeDisplay()
+                updateSendButtonState()
+            }
+        }
+
+        btnEndTime.setOnClickListener {
+            showTimePicker { time ->
+                endTime = time
+                btnEndTime.text = "Time: ${time.format(DateTimeFormatter.ofPattern("HH:mm"))}"
+                updateDateTimeDisplay()
                 updateSendButtonState()
             }
         }
@@ -91,32 +123,85 @@ class StudyInfoFragment : Fragment() {
         datePickerDialog.show()
     }
 
+    private fun showTimePicker(onTimeSelected: (LocalTime) -> Unit) {
+        val calendar = Calendar.getInstance()
+        val timePickerDialog = TimePickerDialog(
+            requireContext(),
+            { _, hourOfDay, minute ->
+                val selectedTime = LocalTime.of(hourOfDay, minute)
+                onTimeSelected(selectedTime)
+            },
+            calendar.get(Calendar.HOUR_OF_DAY),
+            calendar.get(Calendar.MINUTE),
+            true
+        )
+        timePickerDialog.show()
+    }
+
+    private fun updateDateTimeDisplay() {
+        // Update start date/time display
+        val startDateTime = getStartDateTime()
+        if (startDateTime != null) {
+            tvStartDateTime.text = "Start: ${startDateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}"
+        } else {
+            val startParts = mutableListOf<String>()
+            startDate?.let { startParts.add(it.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
+            startTime?.let { startParts.add(it.format(DateTimeFormatter.ofPattern("HH:mm"))) }
+            tvStartDateTime.text = "Start: ${if (startParts.isNotEmpty()) startParts.joinToString(" ") else "Not selected"}"
+        }
+
+        // Update end date/time display
+        val endDateTime = getEndDateTime()
+        if (endDateTime != null) {
+            tvEndDateTime.text = "End: ${endDateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}"
+        } else {
+            val endParts = mutableListOf<String>()
+            endDate?.let { endParts.add(it.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
+            endTime?.let { endParts.add(it.format(DateTimeFormatter.ofPattern("HH:mm"))) }
+            tvEndDateTime.text = "End: ${if (endParts.isNotEmpty()) endParts.joinToString(" ") else "Not selected"}"
+        }
+    }
+
+    private fun getStartDateTime(): ZonedDateTime? {
+        return if (startDate != null && startTime != null) {
+            ZonedDateTime.of(startDate, startTime, ZoneId.systemDefault())
+        } else null
+    }
+
+    private fun getEndDateTime(): ZonedDateTime? {
+        return if (endDate != null && endTime != null) {
+            ZonedDateTime.of(endDate, endTime, ZoneId.systemDefault())
+        } else null
+    }
+
     private fun updateSendButtonState() {
-        val canSend = startDate != null && endDate != null
+        val canSend = startDate != null && startTime != null && endDate != null && endTime != null
         btnSendBatch.isEnabled = canSend
 
         if (canSend) {
-            tvStatus.text = "Ready to send data from ${startDate} to ${endDate}"
+            val startDateTime = getStartDateTime()
+            val endDateTime = getEndDateTime()
+            tvStatus.text = "Ready to send data from ${startDateTime?.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))} to ${endDateTime?.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}"
         } else {
-            tvStatus.text = "Select both start and end dates to enable sending"
+            tvStatus.text = "Select both start and end dates AND times to enable sending"
         }
     }
 
     private fun sendBatchData() {
-        val start = startDate
-        val end = endDate
+        val startDateTime = getStartDateTime()
+        val endDateTime = getEndDateTime()
 
-        if (start == null || end == null) {
-            Toast.makeText(requireContext(), "Please select both start and end dates", Toast.LENGTH_SHORT).show()
+        if (startDateTime == null || endDateTime == null) {
+            Toast.makeText(requireContext(), "Please select both start and end dates AND times", Toast.LENGTH_SHORT).show()
             return
         }
 
-        if (start.isAfter(end)) {
-            Toast.makeText(requireContext(), "Start date must be before end date", Toast.LENGTH_SHORT).show()
+        if (startDateTime.isAfter(endDateTime)) {
+            Toast.makeText(requireContext(), "Start date/time must be before end date/time", Toast.LENGTH_SHORT).show()
             return
         }
 
-        tvStatus.text = "Collecting data from ${start} to ${end}..."
+        tvStatus.text = "Collecting data from ${startDateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))} to ${endDateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}..."
         btnSendBatch.isEnabled = false
 
         lifecycleScope.launch {
@@ -128,11 +213,11 @@ class StudyInfoFragment : Fragment() {
                     return@launch
                 }
 
-                // Get all analytics data and filter by date range
-                val filteredData = getFilteredAnalyticsData(start, end)
+                // Get all analytics data and filter by date/time range
+                val filteredData = getFilteredAnalyticsData(startDateTime, endDateTime)
 
                 if (filteredData.isEmpty()) {
-                    tvStatus.text = "No data found in the selected date range"
+                    tvStatus.text = "No data found in the selected date/time range"
                     btnSendBatch.isEnabled = true
                     return@launch
                 }
@@ -153,157 +238,118 @@ class StudyInfoFragment : Fragment() {
 
             } catch (e: Exception) {
                 tvStatus.text = "❌ Error: ${e.message}"
-                Toast.makeText(requireContext(), "Error sending data: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "Error occurred: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 btnSendBatch.isEnabled = true
             }
         }
     }
 
-    private fun getFilteredAnalyticsData(startDate: LocalDate, endDate: LocalDate): List<AnalyticsData> {
+    private fun getFilteredAnalyticsData(startDateTime: ZonedDateTime, endDateTime: ZonedDateTime): List<AnalyticsData> {
         val filteredData = mutableListOf<AnalyticsData>()
 
-        // First, get data from AnalyticsService (if any)
-        val sessions = AnalyticsService.getAllSessions()
-        sessions.forEach { session ->
-            val sessionDate = session.getSessionStartTime().toLocalDate()
-            if (!sessionDate.isBefore(startDate) && !sessionDate.isAfter(endDate)) {
+        // Get all analytics data from the service
+        val allSessions = AnalyticsService.getAllSessions()
+        val allTaps = AnalyticsService.getAllTaps()
+        val allInterventions = AnalyticsService.getAllInterventions()
+
+        // Filter sessions by date/time range
+        allSessions.forEach { session ->
+            val sessionTime = session.getSessionStartTime()
+            if (!sessionTime.isBefore(startDateTime) && !sessionTime.isAfter(endDateTime)) {
                 filteredData.add(session)
             }
         }
 
-        val taps = AnalyticsService.getAllTaps()
-        taps.forEach { tap ->
-            val tapDate = tap.getTimestamp().toLocalDate()
-            if (!tapDate.isBefore(startDate) && !tapDate.isAfter(endDate)) {
+        // Filter taps by date/time range
+        allTaps.forEach { tap ->
+            val tapTime = tap.getTimestamp()
+            if (!tapTime.isBefore(startDateTime) && !tapTime.isAfter(endDateTime)) {
                 filteredData.add(tap)
             }
         }
 
-        val interventions = AnalyticsService.getAllInterventions()
-        interventions.forEach { intervention ->
-            val interventionDate = intervention.getInterventionStartTime().toLocalDate()
-            if (!interventionDate.isBefore(startDate) && !interventionDate.isAfter(endDate)) {
+        // Filter interventions by date/time range
+        allInterventions.forEach { intervention ->
+            val interventionTime = intervention.getInterventionStartTime()
+            if (!interventionTime.isBefore(startDateTime) && !interventionTime.isAfter(endDateTime)) {
                 filteredData.add(intervention)
             }
-        }
-
-        // If no data from AnalyticsService, try to get real usage stats
-        if (filteredData.isEmpty()) {
-            val usageStatsData = getRealUsageStatsData(startDate, endDate)
-            filteredData.addAll(usageStatsData)
         }
 
         return filteredData
     }
 
-    private fun getRealUsageStatsData(startDate: LocalDate, endDate: LocalDate): List<AnalyticsData> {
-        val usageData = mutableListOf<AnalyticsData>()
-
-        // Check if we have usage stats permission
-        if (!UsagePermissionHelper.hasUsageStatsPermission(requireContext())) {
-            Toast.makeText(requireContext(), "Usage Access permission required. Opening settings...", Toast.LENGTH_LONG).show()
-            UsagePermissionHelper.openUsageAccessSettings(requireContext())
-            return emptyList()
-        }
-
+    private fun updateAnalyticsSummary() {
         try {
-            val usageStatsManager = requireContext().getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val allSessions = AnalyticsService.getAllSessions()
+            val allTaps = AnalyticsService.getAllTaps()
+            val allInterventions = AnalyticsService.getAllInterventions()
 
-            // Convert LocalDate to milliseconds
-            val startTime = startDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val endTime = endDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val summary = buildString {
+                appendLine("📊 Data Ready for Next Batch Send:")
+                appendLine()
 
-            // Get usage stats for the date range
-            val usageStats = usageStatsManager.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
-                startTime,
-                endTime
-            )
-
-            // Convert usage stats to our analytics format
-            usageStats?.forEach { usageStat ->
-                if (usageStat.totalTimeInForeground > 0) {
-                    val appName = getAppNameFromPackage(usageStat.packageName)
-
-                    // Create a session for this app usage
-                    val sessionStart = ZonedDateTime.ofInstant(
-                        java.time.Instant.ofEpochMilli(usageStat.firstTimeStamp),
-                        ZoneId.systemDefault()
-                    )
-                    val sessionEnd = ZonedDateTime.ofInstant(
-                        java.time.Instant.ofEpochMilli(usageStat.lastTimeStamp),
-                        ZoneId.systemDefault()
-                    )
-
-                    val session = AnalyticsData.AppSession(
-                        appName = appName,
-                        packageName = usageStat.packageName,
-                        sessionStart = sessionStart,
-                        sessionEnd = sessionEnd
-                    )
-                    usageData.add(session)
-
-                    // Also create a tap event for each app
-                    val tap = AnalyticsData.AppTap(
-                        timestamp = sessionStart,
-                        appName = appName,
-                        packageName = usageStat.packageName
-                    )
-                    usageData.add(tap)
+                // App Taps Section - Show ALL taps
+                appendLine("🔸 APP TAPS (${allTaps.size} total):")
+                if (allTaps.isEmpty()) {
+                    appendLine("   No taps recorded")
+                } else {
+                    val tapsByApp = allTaps.groupBy { it.appName }
+                    tapsByApp.forEach { (appName, taps) ->
+                        appendLine("   $appName: ${taps.size} taps")
+                        taps.forEach { tap ->
+                            val time = tap.getTimestamp().format(DateTimeFormatter.ofPattern("MM/dd HH:mm:ss"))
+                            appendLine("     • $time")
+                        }
+                    }
                 }
+                appendLine()
+
+                // App Sessions Section - Show ALL sessions
+                appendLine("🔸 APP SESSIONS (${allSessions.size} total):")
+                if (allSessions.isEmpty()) {
+                    appendLine("   No sessions recorded")
+                } else {
+                    val sessionsByApp = allSessions.groupBy { it.appName }
+                    sessionsByApp.forEach { (appName, sessions) ->
+                        appendLine("   $appName: ${sessions.size} sessions")
+                        sessions.forEach { session ->
+                            val start = session.getSessionStartTime().format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))
+                            val end = session.getSessionEndTime().format(DateTimeFormatter.ofPattern("HH:mm"))
+                            val duration = java.time.Duration.between(session.getSessionStartTime(), session.getSessionEndTime()).toMinutes()
+                            appendLine("     • $start-$end (${duration}m)")
+                        }
+                    }
+                }
+                appendLine()
+
+                // Interventions Section - Show ALL interventions
+                appendLine("🔸 INTERVENTIONS (${allInterventions.size} total):")
+                if (allInterventions.isEmpty()) {
+                    appendLine("   No interventions recorded")
+                } else {
+                    allInterventions.forEach { intervention ->
+                        val start = intervention.getInterventionStartTime().format(DateTimeFormatter.ofPattern("MM/dd HH:mm:ss"))
+                        val duration = java.time.Duration.between(intervention.getInterventionStartTime(), intervention.getInterventionEndTime()).toSeconds()
+                        appendLine("   ${intervention.appName}: ${intervention.buttonClicked}")
+                        appendLine("     • $start (${duration}s duration)")
+                    }
+                }
+                appendLine()
+
+                // Summary
+                val totalItems = allTaps.size + allSessions.size + allInterventions.size
+                appendLine("📦 TOTAL ITEMS TO SEND: $totalItems")
+                appendLine()
+                appendLine("💡 Use date/time range above to filter")
+                appendLine("   specific data for testing")
             }
 
+            tvAnalyticsSummary.text = summary
         } catch (e: Exception) {
-            Toast.makeText(requireContext(), "Error accessing usage stats: ${e.message}", Toast.LENGTH_LONG).show()
+            tvAnalyticsSummary.text = "Error loading batch preview: ${e.message}"
         }
-
-        return usageData
-    }
-
-    private fun getAppNameFromPackage(packageName: String): String {
-        return try {
-            val packageManager = requireContext().packageManager
-            val applicationInfo = packageManager.getApplicationInfo(packageName, 0)
-            packageManager.getApplicationLabel(applicationInfo).toString()
-        } catch (e: Exception) {
-            packageName // Return package name if we can't get the app name
-        }
-    }
-
-    private fun updateAnalyticsSummary() {
-        val analyticsService = AnalyticsService.getInstance()
-        if (analyticsService == null) {
-            tvAnalyticsSummary.text = "Analytics service not running"
-            return
-        }
-
-        val sessionCount = AnalyticsService.getSessionCount()
-        val tapCount = AnalyticsService.getTapCount()
-        val interventionCount = AnalyticsService.getInterventionCount()
-
-        val summary = """
-            Sessions: $sessionCount
-            Taps: $tapCount
-            Interventions: $interventionCount
-            
-            Recent Sessions:
-            ${AnalyticsService.getRecentSessions(3).joinToString("\n") { 
-                "• ${it.appName} - ${it.getSessionStartTime().format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))}"
-            }}
-            
-            Recent Taps:
-            ${AnalyticsService.getRecentTaps(3).joinToString("\n") { 
-                "• ${it.appName} - ${it.getTimestamp().format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))}"
-            }}
-        """.trimIndent()
-
-        tvAnalyticsSummary.text = summary
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updateAnalyticsSummary()
-        updateSendButtonState()
     }
 }
+

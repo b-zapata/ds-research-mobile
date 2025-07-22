@@ -127,7 +127,7 @@ class NetworkClient private constructor(private val context: Context) {
     fun getBaseUrl(): String {
         // First check if there's a custom URL stored
         val storedUrl = preferences.getString(KEY_BASE_URL, null)
-        if (!storedUrl.isNullOrEmpty() && storedUrl != "http://35.86.154.191:8080/") {
+        if (!storedUrl.isNullOrEmpty() && storedUrl != "http://54.149.247.183:8080/") {
             return storedUrl
         }
 

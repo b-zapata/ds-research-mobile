@@ -18,14 +18,28 @@ import java.util.concurrent.TimeUnit
 
 class MainService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
-    private var isMonitoring = true
-    private var lastDetectedApp: String? = null
-    private var appSessionStartTime: Long = 0
     private var analyticsService: AnalyticsService? = null
 
     // Track which apps were just tapped (conscious opens)
     private val recentlyTappedApps = mutableMapOf<String, Long>()
     private val tapValidityWindow = 5000L // 5 seconds window after tap
+
+    // Add timestamp-based duplicate prevention
+    private val lastTapRecordedTime = mutableMapOf<String, Long>()
+    private val tapCooldownPeriod = 3000L // 3 seconds minimum between tap recordings for same app
+
+    companion object {
+        private const val NOTIFICATION_ID = 1001
+
+        // Singleton pattern to prevent multiple monitoring loops
+        @Volatile
+        private var isMonitoring = false
+        private var lastDetectedApp: String? = null
+        private var appSessionStartTime: Long = 0
+
+        // Thread-safe synchronization
+        private val monitoringLock = Any()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -65,44 +79,79 @@ class MainService : Service() {
     }
 
     private fun startMonitoring() {
+        synchronized(monitoringLock) {
+            if (isMonitoring) {
+                Log.d("MainService", "Monitoring is already active, skipping start")
+                return
+            }
+            isMonitoring = true
+        }
+
         serviceScope.launch {
+            Log.d("MainService", "Starting monitoring loop")
             while (isMonitoring) {
                 if (isScreenOn()) {
                     val currentApp = getCurrentAppPackage()
+                    Log.d("MainService", "Monitor cycle: currentApp='$currentApp', lastDetectedApp='$lastDetectedApp'")
 
                     // Record app usage analytics
                     recordAppUsage(currentApp)
 
-                    if (currentApp == "com.instagram.android") {
-                        // Record Instagram tap when first detected
-                        if (lastDetectedApp != "com.instagram.android") {
-                            recordInstagramTap()
-                        }
+                    // Handle app detection with enhanced duplicate prevention
+                    when (currentApp) {
+                        "com.instagram.android" -> {
+                            if (lastDetectedApp != "com.instagram.android") {
+                                Log.d("MainService", "Instagram transition detected: $lastDetectedApp -> $currentApp")
+                                recordInstagramTap()
+                                lastDetectedApp = currentApp
+                                Log.d("MainService", "Instagram tap recorded, lastDetectedApp updated to: $lastDetectedApp")
+                            } else {
+                                Log.d("MainService", "Instagram already active, no tap recorded")
+                            }
 
-                        val currentTime = System.currentTimeMillis()
-                        val timeSinceLastSkip = currentTime - OverlayService.getLastSkipTime()
+                            val currentTime = System.currentTimeMillis()
+                            val timeSinceLastSkip = currentTime - OverlayService.getLastSkipTime()
 
-                        if (!isServiceRunning(OverlayService::class.java) &&
-                            timeSinceLastSkip >= OverlayService.COOLDOWN_PERIOD) {
-                            val overlayIntent = Intent(this@MainService, OverlayService::class.java)
-                            startService(overlayIntent)
+                            if (!isServiceRunning(OverlayService::class.java) &&
+                                timeSinceLastSkip >= OverlayService.COOLDOWN_PERIOD) {
+                                val overlayIntent = Intent(this@MainService, OverlayService::class.java)
+                                startService(overlayIntent)
+                            }
                         }
-                    } else if (currentApp == "com.facebook.katana") {
-                        // Record Facebook tap when first detected
-                        if (lastDetectedApp != "com.facebook.katana") {
-                            recordFacebookTap()
+                        "com.facebook.katana" -> {
+                            if (lastDetectedApp != "com.facebook.katana") {
+                                Log.d("MainService", "Facebook transition detected: $lastDetectedApp -> $currentApp")
+                                recordFacebookTap()
+                                lastDetectedApp = currentApp
+                                Log.d("MainService", "Facebook tap recorded, lastDetectedApp updated to: $lastDetectedApp")
+                            } else {
+                                Log.d("MainService", "Facebook already active, no tap recorded")
+                            }
                         }
-                    } else if (currentApp == "com.google.android.youtube") {
-                        // Record YouTube tap when first detected
-                        if (lastDetectedApp != "com.google.android.youtube") {
-                            recordYouTubeTap()
+                        "com.google.android.youtube" -> {
+                            if (lastDetectedApp != "com.google.android.youtube") {
+                                Log.d("MainService", "YouTube transition detected: $lastDetectedApp -> $currentApp")
+                                recordYouTubeTap()
+                                lastDetectedApp = currentApp
+                                Log.d("MainService", "YouTube tap recorded, lastDetectedApp updated to: $lastDetectedApp")
+                            } else {
+                                Log.d("MainService", "YouTube already active, no tap recorded")
+                            }
+                        }
+                        else -> {
+                            // For all other apps, just update lastDetectedApp without recording taps
+                            if (lastDetectedApp != currentApp) {
+                                Log.d("MainService", "App changed from $lastDetectedApp to $currentApp (non-tracked app)")
+                                lastDetectedApp = currentApp
+                            }
                         }
                     }
-
-                    lastDetectedApp = currentApp
+                } else {
+                    Log.d("MainService", "Screen is off, skipping monitoring cycle")
                 }
                 delay(1000)
             }
+            Log.d("MainService", "Monitoring loop ended")
         }
     }
 
@@ -177,36 +226,66 @@ class MainService : Service() {
     }
 
     private fun recordInstagramTap() {
-        try {
-            // Record the tap time for session validation
-            recentlyTappedApps["com.instagram.android"] = System.currentTimeMillis()
+        synchronized(monitoringLock) {
+            try {
+                val currentTime = System.currentTimeMillis()
+                val lastRecordedTime = lastTapRecordedTime["com.instagram.android"] ?: 0
 
-            // Record the tap event for analytics
-            AnalyticsService.recordAppTapStatic("Instagram", "com.instagram.android")
+                if (currentTime - lastRecordedTime >= tapCooldownPeriod) {
+                    // Record the tap time for session validation
+                    recentlyTappedApps["com.instagram.android"] = currentTime
+                    lastTapRecordedTime["com.instagram.android"] = currentTime
 
-            Log.d("MainService", "Recorded Instagram tap")
-        } catch (e: Exception) {
-            Log.e("MainService", "Error recording Instagram tap", e)
+                    // Record the tap event for analytics
+                    AnalyticsService.recordAppTapStatic("Instagram", "com.instagram.android")
+
+                    Log.d("MainService", "Recorded Instagram tap")
+                } else {
+                    Log.d("MainService", "Skipped duplicate Instagram tap recording")
+                }
+            } catch (e: Exception) {
+                Log.e("MainService", "Error recording Instagram tap", e)
+            }
         }
     }
 
     private fun recordFacebookTap() {
-        try {
-            recentlyTappedApps["com.facebook.katana"] = System.currentTimeMillis()
-            AnalyticsService.recordAppTapStatic("Facebook", "com.facebook.katana")
-            Log.d("MainService", "Recorded Facebook tap")
-        } catch (e: Exception) {
-            Log.e("MainService", "Error recording Facebook tap", e)
+        synchronized(monitoringLock) {
+            try {
+                val currentTime = System.currentTimeMillis()
+                val lastRecordedTime = lastTapRecordedTime["com.facebook.katana"] ?: 0
+
+                if (currentTime - lastRecordedTime >= tapCooldownPeriod) {
+                    recentlyTappedApps["com.facebook.katana"] = currentTime
+                    lastTapRecordedTime["com.facebook.katana"] = currentTime
+                    AnalyticsService.recordAppTapStatic("Facebook", "com.facebook.katana")
+                    Log.d("MainService", "Recorded Facebook tap")
+                } else {
+                    Log.d("MainService", "Skipped duplicate Facebook tap recording")
+                }
+            } catch (e: Exception) {
+                Log.e("MainService", "Error recording Facebook tap", e)
+            }
         }
     }
 
     private fun recordYouTubeTap() {
-        try {
-            recentlyTappedApps["com.google.android.youtube"] = System.currentTimeMillis()
-            AnalyticsService.recordAppTapStatic("YouTube", "com.google.android.youtube")
-            Log.d("MainService", "Recorded YouTube tap")
-        } catch (e: Exception) {
-            Log.e("MainService", "Error recording YouTube tap", e)
+        synchronized(monitoringLock) {
+            try {
+                val currentTime = System.currentTimeMillis()
+                val lastRecordedTime = lastTapRecordedTime["com.google.android.youtube"] ?: 0
+
+                if (currentTime - lastRecordedTime >= tapCooldownPeriod) {
+                    recentlyTappedApps["com.google.android.youtube"] = currentTime
+                    lastTapRecordedTime["com.google.android.youtube"] = currentTime
+                    AnalyticsService.recordAppTapStatic("YouTube", "com.google.android.youtube")
+                    Log.d("MainService", "Recorded YouTube tap")
+                } else {
+                    Log.d("MainService", "Skipped duplicate YouTube tap recording")
+                }
+            } catch (e: Exception) {
+                Log.e("MainService", "Error recording YouTube tap", e)
+            }
         }
     }
 
@@ -218,15 +297,38 @@ class MainService : Service() {
     private fun getCurrentAppPackage(): String {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - TimeUnit.MILLISECONDS.convert(1, TimeUnit.SECONDS)
+        val startTime = endTime - TimeUnit.MILLISECONDS.convert(5, TimeUnit.SECONDS) // Increased from 1 to 5 seconds
 
         val queryUsageStats = usageStatsManager.queryUsageStats(
             UsageStatsManager.INTERVAL_DAILY, startTime, endTime
         )
 
-        return queryUsageStats
+        val currentApp = queryUsageStats
+            ?.filter { it.lastTimeUsed > 0 } // Filter out invalid entries
             ?.maxByOrNull { it.lastTimeUsed }
             ?.packageName ?: ""
+
+        // Add stability check - if we get an empty result but had a recent app, verify with a longer window
+        if (currentApp.isEmpty() && lastDetectedApp?.isNotEmpty() == true) {
+            val longerStartTime = endTime - TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS)
+            val longerQuery = usageStatsManager.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY, longerStartTime, endTime
+            )
+            val recentApp = longerQuery
+                ?.filter { it.lastTimeUsed > 0 }
+                ?.maxByOrNull { it.lastTimeUsed }
+                ?.packageName
+
+            // If the recent app matches our last detected app and was used within the last 3 seconds, assume it's still active
+            if (recentApp == lastDetectedApp && recentApp != null) {
+                val recentUsage = longerQuery?.find { it.packageName == recentApp }
+                if (recentUsage != null && (endTime - recentUsage.lastTimeUsed) < 3000) {
+                    return recentApp // This is now guaranteed to be non-null
+                }
+            }
+        }
+
+        return currentApp
     }
 
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {
@@ -246,13 +348,11 @@ class MainService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        isMonitoring = false
+        synchronized(monitoringLock) {
+            isMonitoring = false
+        }
         serviceScope.cancel()
     }
 
     override fun onBind(intent: Intent): IBinder? = null
-
-    companion object {
-        private const val NOTIFICATION_ID = 1001
-    }
 }
