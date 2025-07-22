@@ -144,6 +144,12 @@ class AnalyticsService : Service() {
                 }
             } else emptyList()
         }
+
+        // Static method to clear all analytics data
+        fun clearAllDataStatic(): Int {
+            val instance = getInstance()
+            return instance?.clearAllData() ?: 0
+        }
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
@@ -335,6 +341,19 @@ class AnalyticsService : Service() {
             batteryPercent > 20 // Only send when battery > 20%
         } else {
             true // If can't determine battery, assume it's okay
+        }
+    }
+
+    fun clearAllData(): Int {
+        synchronized(dataLock) {
+            val totalCleared = appSessions.values.sumOf { it.size } +
+                    appTaps.values.sumOf { it.size } +
+                    interventions.values.sumOf { it.size }
+            appSessions.clear()
+            appTaps.clear()
+            interventions.clear()
+            Log.d(TAG, "Cleared all analytics data")
+            return totalCleared
         }
     }
 

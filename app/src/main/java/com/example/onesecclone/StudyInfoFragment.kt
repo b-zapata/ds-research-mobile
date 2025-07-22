@@ -33,6 +33,8 @@ class StudyInfoFragment : Fragment() {
     private lateinit var btnEndDate: Button
     private lateinit var btnEndTime: Button
     private lateinit var btnSendBatch: Button
+    private lateinit var btnDeleteAllData: Button
+    private lateinit var btnRefreshData: Button
     private lateinit var tvStatus: TextView
     private lateinit var tvAnalyticsSummary: TextView
     private lateinit var tvStartDateTime: TextView
@@ -55,6 +57,8 @@ class StudyInfoFragment : Fragment() {
         btnEndDate = view.findViewById(R.id.btnEndDate)
         btnEndTime = view.findViewById(R.id.btnEndTime)
         btnSendBatch = view.findViewById(R.id.btnSendBatch)
+        btnDeleteAllData = view.findViewById(R.id.btnDeleteAllData)
+        btnRefreshData = view.findViewById(R.id.btnRefreshData)
         tvStatus = view.findViewById(R.id.tvStatus)
         tvAnalyticsSummary = view.findViewById(R.id.tvAnalyticsSummary)
         tvStartDateTime = view.findViewById(R.id.tvStartDateTime)
@@ -105,6 +109,20 @@ class StudyInfoFragment : Fragment() {
 
         btnSendBatch.setOnClickListener {
             sendBatchData()
+        }
+
+        btnDeleteAllData.setOnClickListener {
+            deleteAllData()
+        }
+
+        btnRefreshData.setOnClickListener {
+            refreshData()
+        }
+
+        // Add long press for detailed debug info
+        btnRefreshData.setOnLongClickListener {
+            showDetailedDebugInfo()
+            true
         }
     }
 
@@ -250,7 +268,6 @@ class StudyInfoFragment : Fragment() {
 
         // Get all analytics data from the service
         val allSessions = AnalyticsService.getAllSessions()
-        val allTaps = AnalyticsService.getAllTaps()
         val allInterventions = AnalyticsService.getAllInterventions()
 
         // Filter sessions by date/time range
@@ -258,14 +275,6 @@ class StudyInfoFragment : Fragment() {
             val sessionTime = session.getSessionStartTime()
             if (!sessionTime.isBefore(startDateTime) && !sessionTime.isAfter(endDateTime)) {
                 filteredData.add(session)
-            }
-        }
-
-        // Filter taps by date/time range
-        allTaps.forEach { tap ->
-            val tapTime = tap.getTimestamp()
-            if (!tapTime.isBefore(startDateTime) && !tapTime.isAfter(endDateTime)) {
-                filteredData.add(tap)
             }
         }
 
@@ -283,48 +292,47 @@ class StudyInfoFragment : Fragment() {
     private fun updateAnalyticsSummary() {
         try {
             val allSessions = AnalyticsService.getAllSessions()
-            val allTaps = AnalyticsService.getAllTaps()
             val allInterventions = AnalyticsService.getAllInterventions()
 
             val summary = buildString {
                 appendLine("📊 Data Ready for Next Batch Send:")
                 appendLine()
 
-                // App Taps Section - Show ALL taps
-                appendLine("🔸 APP TAPS (${allTaps.size} total):")
-                if (allTaps.isEmpty()) {
-                    appendLine("   No taps recorded")
-                } else {
-                    val tapsByApp = allTaps.groupBy { it.appName }
-                    tapsByApp.forEach { (appName, taps) ->
-                        appendLine("   $appName: ${taps.size} taps")
-                        taps.forEach { tap ->
-                            val time = tap.getTimestamp().format(DateTimeFormatter.ofPattern("MM/dd HH:mm:ss"))
-                            appendLine("     • $time")
-                        }
-                    }
-                }
-                appendLine()
-
-                // App Sessions Section - Show ALL sessions
-                appendLine("🔸 APP SESSIONS (${allSessions.size} total):")
+                // App Sessions Section
+                appendLine("🔸 APP USAGE SESSIONS (${allSessions.size} total):")
                 if (allSessions.isEmpty()) {
                     appendLine("   No sessions recorded")
                 } else {
                     val sessionsByApp = allSessions.groupBy { it.appName }
                     sessionsByApp.forEach { (appName, sessions) ->
-                        appendLine("   $appName: ${sessions.size} sessions")
-                        sessions.forEach { session ->
-                            val start = session.getSessionStartTime().format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))
-                            val end = session.getSessionEndTime().format(DateTimeFormatter.ofPattern("HH:mm"))
-                            val duration = java.time.Duration.between(session.getSessionStartTime(), session.getSessionEndTime()).toMinutes()
-                            appendLine("     • $start-$end (${duration}m)")
+                        val totalTime = sessions.sumOf {
+                            java.time.Duration.between(it.getSessionStartTime(), it.getSessionEndTime()).toMinutes()
                         }
+                        appendLine("   $appName: ${sessions.size} sessions (${totalTime}m total)")
+
+                        // Show ALL sessions
+                        sessions.sortedByDescending { it.getSessionStartTime() }
+                            .forEach { session ->
+                                val start = session.getSessionStartTime().format(DateTimeFormatter.ofPattern("MM/dd HH:mm:ss"))
+                                val end = session.getSessionEndTime().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+                                val duration = java.time.Duration.between(session.getSessionStartTime(), session.getSessionEndTime())
+                                val hours = duration.toHours()
+                                val minutes = duration.toMinutes() % 60
+                                val seconds = duration.seconds % 60
+
+                                val durationStr = when {
+                                    hours > 0 -> "${hours}h ${minutes}m ${seconds}s"
+                                    minutes > 0 -> "${minutes}m ${seconds}s"
+                                    else -> "${seconds}s"
+                                }
+
+                                appendLine("     • $start-$end ($durationStr)")
+                            }
+                        appendLine()
                     }
                 }
-                appendLine()
 
-                // Interventions Section - Show ALL interventions
+                // Interventions Section
                 appendLine("🔸 INTERVENTIONS (${allInterventions.size} total):")
                 if (allInterventions.isEmpty()) {
                     appendLine("   No interventions recorded")
@@ -339,11 +347,8 @@ class StudyInfoFragment : Fragment() {
                 appendLine()
 
                 // Summary
-                val totalItems = allTaps.size + allSessions.size + allInterventions.size
+                val totalItems = allSessions.size + allInterventions.size
                 appendLine("📦 TOTAL ITEMS TO SEND: $totalItems")
-                appendLine()
-                appendLine("💡 Use date/time range above to filter")
-                appendLine("   specific data for testing")
             }
 
             tvAnalyticsSummary.text = summary
@@ -351,5 +356,141 @@ class StudyInfoFragment : Fragment() {
             tvAnalyticsSummary.text = "Error loading batch preview: ${e.message}"
         }
     }
-}
 
+    private fun deleteAllData() {
+        // Show confirmation dialog since this is a destructive action
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("Delete All Data")
+            .setMessage(
+                "⚠️ This will permanently delete ALL collected data:\n\n" +
+                "• App usage sessions\n" +
+                "• Intervention records\n" +
+                "• Any remaining tap data\n\n" +
+                "This action cannot be undone. Are you sure?"
+            )
+            .setPositiveButton("Delete All") { _, _ ->
+                performDeleteAllData()
+            }
+            .setNegativeButton("Cancel") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setCancelable(true)
+            .show()
+    }
+
+    private fun performDeleteAllData() {
+        try {
+            val analyticsService = AnalyticsService.getInstance()
+            if (analyticsService == null) {
+                tvStatus.text = "Error: Analytics service not running"
+                Toast.makeText(requireContext(), "Analytics service not available", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            // Disable delete button during operation
+            btnDeleteAllData.isEnabled = false
+            tvStatus.text = "Deleting all data..."
+
+            // Clear all data
+            val deletedCount = AnalyticsService.clearAllDataStatic()
+
+            // Update UI to reflect changes
+            updateAnalyticsSummary()
+
+            // Show success message
+            tvStatus.text = "✅ Successfully deleted $deletedCount data items"
+            Toast.makeText(requireContext(), "All data deleted successfully!", Toast.LENGTH_SHORT).show()
+
+        } catch (e: Exception) {
+            tvStatus.text = "❌ Error deleting data: ${e.message}"
+            Toast.makeText(requireContext(), "Failed to delete data: ${e.message}", Toast.LENGTH_SHORT).show()
+        } finally {
+            btnDeleteAllData.isEnabled = true
+        }
+    }
+
+    private fun refreshData() {
+        // Add diagnostic information
+        val analyticsService = AnalyticsService.getInstance()
+        val serviceStatus = if (analyticsService != null) "✅ Running" else "❌ Not Running"
+
+        updateAnalyticsSummary()
+        Toast.makeText(requireContext(), "Data refreshed! Analytics Service: $serviceStatus", Toast.LENGTH_LONG).show()
+    }
+
+    private fun showDetailedDebugInfo() {
+        try {
+            val allSessions = AnalyticsService.getAllSessions()
+            val allInterventions = AnalyticsService.getAllInterventions()
+            val allTaps = AnalyticsService.getAllTaps()
+
+            val debugInfo = buildString {
+                appendLine("🔍 DETAILED DEBUG INFO")
+                appendLine("=".repeat(30))
+                appendLine()
+
+                appendLine("📊 RAW DATA COUNTS:")
+                appendLine("• Sessions: ${allSessions.size}")
+                appendLine("• Interventions: ${allInterventions.size}")
+                appendLine("• Taps: ${allTaps.size}")
+                appendLine()
+
+                appendLine("🕒 RAW SESSION DATA:")
+                if (allSessions.isEmpty()) {
+                    appendLine("   No sessions found")
+                } else {
+                    allSessions.forEachIndexed { index, session ->
+                        appendLine("   Session ${index + 1}:")
+                        appendLine("     App: ${session.appName}")
+                        appendLine("     Package: ${session.packageName}")
+                        appendLine("     Start: ${session.sessionStart}")
+                        appendLine("     End: ${session.sessionEnd}")
+                        appendLine("     EventType: ${session.eventType}")
+                        appendLine("     Duration: ${java.time.Duration.between(session.getSessionStartTime(), session.getSessionEndTime()).toMinutes()}m")
+                        appendLine()
+                    }
+                }
+
+                appendLine("🎯 RAW TAP DATA:")
+                if (allTaps.isEmpty()) {
+                    appendLine("   No taps found")
+                } else {
+                    allTaps.forEachIndexed { index, tap ->
+                        appendLine("   Tap ${index + 1}:")
+                        appendLine("     App: ${tap.appName}")
+                        appendLine("     Package: ${tap.packageName}")
+                        appendLine("     Timestamp: ${tap.timestamp}")
+                        appendLine("     EventType: ${tap.eventType}")
+                        appendLine()
+                    }
+                }
+
+                appendLine("🛠️ RAW INTERVENTION DATA:")
+                if (allInterventions.isEmpty()) {
+                    appendLine("   No interventions found")
+                } else {
+                    allInterventions.forEachIndexed { index, intervention ->
+                        appendLine("   Intervention ${index + 1}:")
+                        appendLine("     App: ${intervention.appName}")
+                        appendLine("     Type: ${intervention.interventionType}")
+                        appendLine("     Button: ${intervention.buttonClicked}")
+                        appendLine("     Start: ${intervention.interventionStart}")
+                        appendLine("     End: ${intervention.interventionEnd}")
+                        appendLine("     EventType: ${intervention.eventType}")
+                        appendLine()
+                    }
+                }
+            }
+
+            // Show in a dialog
+            androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Raw Database Contents")
+                .setMessage(debugInfo.toString())
+                .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                .show()
+
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "Error getting debug info: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+}
