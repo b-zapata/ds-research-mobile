@@ -10,9 +10,9 @@ import com.example.onesecclone.BuildConfig
 object AppConfig {
 
     // Default fallback URLs - these can be easily updated
-    const val DEFAULT_PRODUCTION_URL = "http://54.186.25.9:8080/"
-    const val DEFAULT_STAGING_URL = "http://54.186.25.9:8080/"
-    const val DEFAULT_LOCAL_URL = "http://54.186.25.9:8080/"
+    const val DEFAULT_PRODUCTION_URL = "http://54.149.247.183:8080/"
+    const val DEFAULT_STAGING_URL = "http://54.149.247.183:8080/"
+    const val DEFAULT_LOCAL_URL = "http://54.149.247.183:8080/"
 
     // Environment variable names (can be set via build configuration)
     const val ENV_SERVER_URL = "SERVER_URL"
