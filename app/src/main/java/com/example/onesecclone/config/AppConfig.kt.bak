@@ -12,7 +12,7 @@ import com.example.onesecclone.BuildConfig
 object AppConfig {
 
     // 🔥 SINGLE SOURCE OF TRUTH - Change IP here only!
-    private const val SERVER_IP = "44.247.94.119"
+    private const val SERVER_IP = "192.168.1.100"
     private const val SERVER_PORT = "8080"
     private const val SERVER_PROTOCOL = "http"
     

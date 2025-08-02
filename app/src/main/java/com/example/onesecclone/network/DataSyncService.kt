@@ -60,7 +60,6 @@ class DataSyncService private constructor(private val context: Context) {
 
                     val eventType = when(data) {
                         is AnalyticsData.AppSession -> data.eventType
-                        is AnalyticsData.AppTap -> data.eventType
                         is AnalyticsData.Intervention -> data.eventType
                         is AnalyticsData.DeviceStatus -> data.eventType
                         is AnalyticsData.DailySummary -> data.eventType
@@ -88,7 +87,6 @@ class DataSyncService private constructor(private val context: Context) {
                     lastException = e
                     val eventType = when(data) {
                         is AnalyticsData.AppSession -> data.eventType
-                        is AnalyticsData.AppTap -> data.eventType
                         is AnalyticsData.Intervention -> data.eventType
                         is AnalyticsData.DeviceStatus -> data.eventType
                         is AnalyticsData.DailySummary -> data.eventType
@@ -105,7 +103,6 @@ class DataSyncService private constructor(private val context: Context) {
 
             val eventType = when(data) {
                 is AnalyticsData.AppSession -> data.eventType
-                is AnalyticsData.AppTap -> data.eventType
                 is AnalyticsData.Intervention -> data.eventType
                 is AnalyticsData.DeviceStatus -> data.eventType
                 is AnalyticsData.DailySummary -> data.eventType
@@ -164,27 +161,39 @@ class DataSyncService private constructor(private val context: Context) {
     }
 
     /**
-     * Send batch data to AWS EC2 server with improved chunking
+     * Send batch data to AWS EC2 server with improved chunking and debugging
      */
     suspend fun sendBatchData(dataList: List<AnalyticsData>): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                Log.i(TAG, "🚀 Starting batch send of ${dataList.size} items")
+
                 if (!isNetworkAvailable()) {
-                    Log.d(TAG, "No network available for batch data")
+                    Log.w(TAG, "❌ No network available for batch data")
                     dataList.forEach { queueDataOffline(it) }
                     return@withContext false
                 }
+
+                // Test server connectivity first
+                Log.d(TAG, "🔍 Testing server connectivity...")
+                val healthResult = performHealthCheck()
+                if (!healthResult.isHealthy) {
+                    Log.w(TAG, "❌ Health check failed: ${healthResult.message}")
+                    dataList.forEach { queueDataOffline(it) }
+                    return@withContext false
+                }
+                Log.d(TAG, "✅ Server health check passed (${healthResult.responseTimeMs}ms)")
 
                 // Split large batches into smaller chunks for better reliability
                 val chunks = dataList.chunked(BATCH_SIZE)
                 var successCount = 0
                 var failedItems = mutableListOf<AnalyticsData>()
 
-                Log.d(TAG, "Sending ${dataList.size} items in ${chunks.size} chunks of max $BATCH_SIZE items")
+                Log.i(TAG, "📦 Sending ${dataList.size} items in ${chunks.size} chunks of max $BATCH_SIZE items")
 
                 for ((index, chunk) in chunks.withIndex()) {
                     try {
-                        Log.d(TAG, "Sending chunk ${index + 1}/${chunks.size} with ${chunk.size} items")
+                        Log.d(TAG, "📤 Sending chunk ${index + 1}/${chunks.size} with ${chunk.size} items...")
 
                         val batchData = BatchAnalyticsData(
                             deviceId = networkClient.getDeviceId(),
@@ -192,16 +201,25 @@ class DataSyncService private constructor(private val context: Context) {
                             timestamp = ZonedDateTime.now().toString()
                         )
 
+                        Log.d(TAG, "🌐 Making network request to ${networkClient.getBaseUrl()}")
+                        val requestStartTime = System.currentTimeMillis()
+
                         val response = networkClient.apiService.sendBatchData(batchData)
+
+                        val requestTime = System.currentTimeMillis() - requestStartTime
+                        Log.d(TAG, "📡 Network request completed in ${requestTime}ms")
+
                         val success = response.isSuccessful && response.body()?.success == true
 
                         if (success) {
                             successCount++
-                            Log.d(TAG, "Successfully sent chunk ${index + 1} with ${chunk.size} items")
+                            Log.i(TAG, "✅ Chunk ${index + 1} succeeded (${chunk.size} items, ${requestTime}ms)")
                         } else {
-                            Log.w(TAG, "Batch failed for chunk ${index + 1}, trying individual requests: ${response.errorBody()?.string()}")
+                            val errorBody = response.errorBody()?.string()
+                            Log.w(TAG, "❌ Chunk ${index + 1} failed: HTTP ${response.code()}, Error: $errorBody")
 
                             // Fallback: try sending each item individually
+                            Log.d(TAG, "🔄 Trying individual requests for failed chunk...")
                             var individualSuccessCount = 0
                             for (item in chunk) {
                                 try {
@@ -219,22 +237,23 @@ class DataSyncService private constructor(private val context: Context) {
 
                             if (individualSuccessCount == chunk.size) {
                                 successCount++
-                                Log.i(TAG, "✅ Chunk ${index + 1} succeeded via individual requests ($individualSuccessCount/${chunk.size})")
+                                Log.i(TAG, "✅ Chunk ${index + 1} recovered via individual requests ($individualSuccessCount/${chunk.size})")
                             } else {
-                                Log.w(TAG, "❌ Chunk ${index + 1} partially failed: $individualSuccessCount/${chunk.size} succeeded individually")
+                                Log.w(TAG, "❌ Chunk ${index + 1} partial recovery: $individualSuccessCount/${chunk.size} succeeded")
                             }
                         }
 
                         // Add small delay between chunks to avoid overwhelming the server
                         if (index < chunks.size - 1) {
-                            delay(1000) // 1 second delay between chunks
+                            Log.d(TAG, "⏳ Waiting 1s before next chunk...")
+                            delay(1000)
                         }
 
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error sending chunk ${index + 1}: ${e.message}", e)
+                        Log.e(TAG, "💥 Exception in chunk ${index + 1}: ${e.javaClass.simpleName}: ${e.message}", e)
 
                         // Fallback: try individual requests for this chunk too
-                        Log.d(TAG, "Trying individual requests for failed chunk ${index + 1}")
+                        Log.d(TAG, "🔄 Trying individual recovery for chunk ${index + 1}...")
                         var individualSuccessCount = 0
                         for (item in chunk) {
                             try {
@@ -245,29 +264,33 @@ class DataSyncService private constructor(private val context: Context) {
                                     failedItems.add(item)
                                 }
                             } catch (ie: Exception) {
-                                Log.w(TAG, "Individual fallback failed for ${item::class.simpleName}: ${ie.message}")
+                                Log.w(TAG, "Individual fallback failed: ${ie.message}")
                                 failedItems.add(item)
                             }
                         }
 
                         if (individualSuccessCount == chunk.size) {
                             successCount++
-                            Log.i(TAG, "✅ Chunk ${index + 1} recovered via individual requests ($individualSuccessCount/${chunk.size})")
+                            Log.i(TAG, "✅ Chunk ${index + 1} fully recovered ($individualSuccessCount/${chunk.size})")
                         } else {
-                            Log.w(TAG, "❌ Chunk ${index + 1} recovery failed: $individualSuccessCount/${chunk.size} succeeded individually")
+                            Log.w(TAG, "❌ Chunk ${index + 1} partial recovery: $individualSuccessCount/${chunk.size}")
                         }
                     }
                 }
 
                 // Queue failed items for retry
-                failedItems.forEach { queueDataOffline(it) }
+                if (failedItems.isNotEmpty()) {
+                    Log.w(TAG, "📥 Queuing ${failedItems.size} failed items for offline retry")
+                    failedItems.forEach { queueDataOffline(it) }
+                }
 
                 val overallSuccess = successCount == chunks.size
-                Log.d(TAG, "Batch operation complete: $successCount/${chunks.size} chunks successful")
+                Log.i(TAG, "🏁 Batch operation complete: $successCount/${chunks.size} chunks successful, ${failedItems.size} items failed")
 
                 overallSuccess
             } catch (e: Exception) {
-                Log.e(TAG, "Error in batch operation: ${e.message}", e)
+                Log.e(TAG, "💥 Critical error in batch operation: ${e.javaClass.simpleName}: ${e.message}", e)
+                Log.d(TAG, "📥 Queuing all ${dataList.size} items for offline retry due to critical error")
                 dataList.forEach { queueDataOffline(it) }
                 false
             }

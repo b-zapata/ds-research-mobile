@@ -1,13 +1,7 @@
 package com.example.onesecclone.analytics
 
 import android.app.Service
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
-import android.os.BatteryManager
-import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import com.example.onesecclone.network.DataSyncService
@@ -32,10 +26,6 @@ class AnalyticsService : Service() {
             getInstance()?.recordAppSession(appName, packageName, startTime, endTime)
         }
 
-        fun recordAppTapStatic(appName: String, packageName: String) {
-            getInstance()?.recordAppTap(appName, packageName)
-        }
-
         fun recordInterventionStatic(
             appName: String,
             interventionType: String,
@@ -53,9 +43,8 @@ class AnalyticsService : Service() {
             return if (instance != null) {
                 synchronized(instance.dataLock) {
                     val sessionCount = instance.appSessions.values.sumOf { it.size }
-                    val tapCount = instance.appTaps.values.sumOf { it.size }
                     val interventionCount = instance.interventions.values.sumOf { it.size }
-                    "📊 Analytics Status: $sessionCount sessions, $tapCount taps, $interventionCount interventions"
+                    "📊 Analytics Status: $sessionCount sessions, $interventionCount interventions"
                 }
             } else {
                 "❌ AnalyticsService not running"
@@ -68,15 +57,6 @@ class AnalyticsService : Service() {
             return if (instance != null) {
                 synchronized(instance.dataLock) {
                     instance.appSessions.values.sumOf { it.size }
-                }
-            } else 0
-        }
-
-        fun getTapCount(): Int {
-            val instance = getInstance()
-            return if (instance != null) {
-                synchronized(instance.dataLock) {
-                    instance.appTaps.values.sumOf { it.size }
                 }
             } else 0
         }
@@ -99,15 +79,6 @@ class AnalyticsService : Service() {
             } else emptyList()
         }
 
-        fun getRecentTaps(limit: Int = 5): List<AnalyticsData.AppTap> {
-            val instance = getInstance()
-            return if (instance != null) {
-                synchronized(instance.dataLock) {
-                    instance.appTaps.values.flatten().takeLast(limit)
-                }
-            } else emptyList()
-        }
-
         fun getRecentInterventions(limit: Int = 5): List<AnalyticsData.Intervention> {
             val instance = getInstance()
             return if (instance != null) {
@@ -123,15 +94,6 @@ class AnalyticsService : Service() {
             return if (instance != null) {
                 synchronized(instance.dataLock) {
                     instance.appSessions.values.flatten()
-                }
-            } else emptyList()
-        }
-
-        fun getAllTaps(): List<AnalyticsData.AppTap> {
-            val instance = getInstance()
-            return if (instance != null) {
-                synchronized(instance.dataLock) {
-                    instance.appTaps.values.flatten()
                 }
             } else emptyList()
         }
@@ -156,10 +118,9 @@ class AnalyticsService : Service() {
     private var hourlyJob: Job? = null
     private var dailyJob: Job? = null
 
-    // Thread-safe collections to prevent race conditions from multiple MainService instances
+    // Thread-safe collections to prevent race conditions
     val dataLock = Any()
     private val appSessions = mutableMapOf<String, MutableList<AnalyticsData.AppSession>>()
-    private val appTaps = mutableMapOf<String, MutableList<AnalyticsData.AppTap>>()
     private val interventions = mutableMapOf<String, MutableList<AnalyticsData.Intervention>>()
 
     private lateinit var dataSyncService: DataSyncService
@@ -208,8 +169,8 @@ class AnalyticsService : Service() {
     fun recordAppSession(appName: String, packageName: String, startTime: Long, endTime: Long) {
         synchronized(dataLock) {
             try {
-                val sessionStartTime = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(startTime), ZoneId.systemDefault())
-                val sessionEndTime = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(endTime), ZoneId.systemDefault())
+                val sessionStartTime = ZonedDateTime.ofInstant(Instant.ofEpochMilli(startTime), ZoneId.systemDefault())
+                val sessionEndTime = ZonedDateTime.ofInstant(Instant.ofEpochMilli(endTime), ZoneId.systemDefault())
 
                 val session = AnalyticsData.AppSession(
                     appName = appName,
@@ -218,25 +179,9 @@ class AnalyticsService : Service() {
                     sessionEnd = sessionEndTime
                 )
                 appSessions.getOrPut(packageName) { mutableListOf() }.add(session)
-                Log.d(TAG, "Recorded app session for $appName (will be sent in next hourly batch)")
+                Log.d(TAG, "Recorded app session for $appName")
             } catch (e: Exception) {
                 Log.e(TAG, "Error recording app session: ${e.message}")
-            }
-        }
-    }
-
-    fun recordAppTap(appName: String, packageName: String) {
-        synchronized(dataLock) {
-            try {
-                val tap = AnalyticsData.AppTap(
-                    timestamp = ZonedDateTime.now(),
-                    appName = appName,
-                    packageName = packageName
-                )
-                appTaps.getOrPut(packageName) { mutableListOf() }.add(tap)
-                Log.d(TAG, "Recorded app tap for $appName (will be sent in next hourly batch)")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error recording app tap: ${e.message}")
             }
         }
     }
@@ -251,109 +196,106 @@ class AnalyticsService : Service() {
     ) {
         synchronized(dataLock) {
             try {
-                val currentTime = ZonedDateTime.now()
-                val interventionStart = interventionStartTime?.let {
-                    ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(it), ZoneId.systemDefault())
-                } ?: currentTime
+                val startTime = if (interventionStartTime != null) {
+                    ZonedDateTime.ofInstant(Instant.ofEpochMilli(interventionStartTime), ZoneId.systemDefault())
+                } else {
+                    ZonedDateTime.now().minusSeconds(videoDuration?.div(1000)?.toLong() ?: 5)
+                }
 
                 val intervention = AnalyticsData.Intervention(
-                    interventionStart = interventionStart,
-                    interventionEnd = currentTime,
+                    interventionStart = startTime,
+                    interventionEnd = ZonedDateTime.now(),
                     appName = appName,
                     interventionType = interventionType,
                     videoDuration = videoDuration,
                     requiredWatchTime = requiredWatchTime,
                     buttonClicked = buttonClicked
                 )
-                interventions.getOrPut(appName) { mutableListOf() }.add(intervention)
-                Log.d(TAG, "Recorded intervention for $appName ($interventionType)")
+
+                val packageName = getPackageNameFromAppName(appName)
+                interventions.getOrPut(packageName) { mutableListOf() }.add(intervention)
+                Log.d(TAG, "Recorded intervention for $appName with button: $buttonClicked")
             } catch (e: Exception) {
                 Log.e(TAG, "Error recording intervention: ${e.message}")
             }
         }
     }
 
-    private fun sendBatchData() {
+    private fun getPackageNameFromAppName(appName: String): String {
+        return when (appName.lowercase()) {
+            "instagram" -> "com.instagram.android"
+            "facebook" -> "com.facebook.katana"
+            "youtube" -> "com.google.android.youtube"
+            "tiktok" -> "com.zhiliaoapp.musically"
+            "snapchat" -> "com.snapchat.android"
+            "twitter", "x" -> "com.twitter.android"
+            else -> "unknown.app.package"
+        }
+    }
+
+    private suspend fun sendBatchData() {
+        val allData = mutableListOf<AnalyticsData>()
+
+        // Collect data inside synchronized block
         synchronized(dataLock) {
-            if (isNetworkAvailable() && isBatteryLevelGood()) {
-                Log.d(TAG, "Sending batch data to server...")
+            // Collect all sessions
+            appSessions.values.forEach { sessionList ->
+                allData.addAll(sessionList)
+            }
 
-                // Collect all data into a single list
-                val allData = mutableListOf<AnalyticsData>().apply {
-                    addAll(appSessions.values.flatten())
-                    addAll(appTaps.values.flatten())
-                    addAll(interventions.values.flatten())
-                }
+            // Collect all interventions
+            interventions.values.forEach { interventionList ->
+                allData.addAll(interventionList)
+            }
+        }
 
-                if (allData.isNotEmpty()) {
-                    // Use coroutine to send data asynchronously
-                    serviceScope.launch {
-                        try {
-                            val success = dataSyncService.sendBatchData(allData)
-                            if (success) {
-                                // Clear sent data on success
-                                synchronized(dataLock) {
-                                    appSessions.clear()
-                                    appTaps.clear()
-                                    interventions.clear()
-                                }
-                                Log.d(TAG, "Batch data sent and cleared successfully")
-                            } else {
-                                Log.w(TAG, "Failed to send batch data, will retry later")
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error sending batch data: ${e.message}")
-                        }
+        // Send data outside synchronized block to avoid suspension point in critical section
+        if (allData.isNotEmpty()) {
+            Log.i(TAG, "Sending batch of ${allData.size} analytics items")
+
+            try {
+                val success = dataSyncService.sendBatchData(allData)
+                if (success) {
+                    // Clear sent data inside synchronized block
+                    synchronized(dataLock) {
+                        appSessions.clear()
+                        interventions.clear()
                     }
+                    Log.i(TAG, "Successfully sent and cleared ${allData.size} analytics items")
                 } else {
-                    Log.d(TAG, "No data to send")
+                    Log.w(TAG, "Failed to send batch data, will retry next hour")
                 }
-            } else {
-                Log.d(TAG, "Skipping batch send - network or battery conditions not met")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending batch data: ${e.message}")
             }
         }
     }
 
-    private fun sendDailySummary() {
-        // Implementation for daily summary
-        Log.d(TAG, "Daily summary would be sent here")
-    }
+    private suspend fun sendDailySummary() {
+        try {
+            val yesterday = LocalDate.now().minusDays(1)
+            Log.d(TAG, "Generating daily summary for $yesterday")
 
-    private fun isNetworkAvailable(): Boolean {
-        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val network = connectivityManager.activeNetwork
-            val capabilities = connectivityManager.getNetworkCapabilities(network)
-            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        } else {
-            @Suppress("DEPRECATION")
-            connectivityManager.activeNetworkInfo?.isConnected == true
-        }
-    }
+            // Generate summary based on collected data
+            val summary = AnalyticsData.DailySummary(
+                date = yesterday.toString(),
+                totalScreenTime = 0, // Would need to calculate from sessions
+                appTotals = mapOf() // Would need to aggregate from collected data
+            )
 
-    private fun isBatteryLevelGood(): Boolean {
-        val batteryStatus = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-
-        return if (level != -1 && scale != -1) {
-            val batteryPercent = (level.toFloat() / scale.toFloat()) * 100
-            batteryPercent > 20 // Only send when battery > 20%
-        } else {
-            true // If can't determine battery, assume it's okay
+            dataSyncService.sendData(summary)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending daily summary: ${e.message}")
         }
     }
 
     fun clearAllData(): Int {
         synchronized(dataLock) {
-            val totalCleared = appSessions.values.sumOf { it.size } +
-                    appTaps.values.sumOf { it.size } +
-                    interventions.values.sumOf { it.size }
+            val totalItems = appSessions.values.sumOf { it.size } + interventions.values.sumOf { it.size }
             appSessions.clear()
-            appTaps.clear()
             interventions.clear()
-            Log.d(TAG, "Cleared all analytics data")
-            return totalCleared
+            Log.i(TAG, "Cleared $totalItems analytics items")
+            return totalItems
         }
     }
 

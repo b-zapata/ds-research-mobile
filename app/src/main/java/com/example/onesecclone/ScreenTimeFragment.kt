@@ -158,49 +158,12 @@ class ScreenTimeFragment : Fragment() {
 
         // Get current analytics data using the new public methods
         val sessionCount = AnalyticsService.getSessionCount()
-        val tapCount = AnalyticsService.getTapCount()
         val interventionCount = AnalyticsService.getInterventionCount()
 
         // Data Collection Summary
         addSectionHeader(containerLayout, "📱 Data Collection Summary")
         addDataRow(containerLayout, "App Sessions", "$sessionCount recorded")
-        addDataRow(containerLayout, "App Taps", "$tapCount recorded")
         addDataRow(containerLayout, "Interventions", "$interventionCount recorded")
-
-        // Recent App Sessions
-        val recentSessions = AnalyticsService.getRecentSessions(5)
-        if (recentSessions.isNotEmpty()) {
-            addSectionHeader(containerLayout, "📱 Recent App Sessions")
-            recentSessions.forEach { session ->
-                val totalSeconds = java.time.temporal.ChronoUnit.SECONDS.between(
-                    session.getSessionStartTime(), session.getSessionEndTime())
-                val durationText = when {
-                    totalSeconds < 60 -> "${totalSeconds}s"
-                    totalSeconds < 3600 -> {
-                        val minutes = totalSeconds / 60
-                        val seconds = totalSeconds % 60
-                        if (seconds == 0L) "${minutes}m" else "${minutes}m ${seconds}s"
-                    }
-                    else -> {
-                        val hours = totalSeconds / 3600
-                        val minutes = (totalSeconds % 3600) / 60
-                        if (minutes == 0L) "${hours}h" else "${hours}h ${minutes}m"
-                    }
-                }
-                addDataRow(containerLayout, session.appName, durationText)
-            }
-        }
-
-        // Recent App Taps
-        val recentTaps = AnalyticsService.getRecentTaps(5)
-        if (recentTaps.isNotEmpty()) {
-            addSectionHeader(containerLayout, "👆 Recent App Taps")
-            recentTaps.forEach { tap ->
-                val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-                val time = timeFormat.format(java.util.Date.from(tap.getTimestamp().toInstant()))
-                addDataRow(containerLayout, tap.appName, "at $time")
-            }
-        }
 
         // Recent Interventions
         val recentInterventions = AnalyticsService.getRecentInterventions(5)
@@ -215,11 +178,10 @@ class ScreenTimeFragment : Fragment() {
 
         // Instructions for testing
         addSectionHeader(containerLayout, "🧪 Testing Instructions")
-        addDataRow(containerLayout, "1. Open Instagram", "Should record an app tap")
+        addDataRow(containerLayout, "1. Open Instagram", "Should record app sessions")
         addDataRow(containerLayout, "2. Wait for video overlay", "Should record intervention")
         addDataRow(containerLayout, "3. Click Close/Skip", "Should record user choice")
         addDataRow(containerLayout, "4. Switch between apps", "Should record app sessions")
-        addDataRow(containerLayout, "5. Refresh this view", "To see updated data")
 
         // Refresh button
         val refreshButton = Button(requireContext())

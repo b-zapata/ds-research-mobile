@@ -31,6 +31,13 @@ class NetworkClient private constructor(private val context: Context) {
             }
         }
 
+        // Force recreation of NetworkClient instance (useful for clearing cached URLs)
+        fun resetInstance() {
+            synchronized(this) {
+                INSTANCE = null
+            }
+        }
+
         private const val PREF_NAME = "network_config"
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_DEVICE_ID = "device_id"
@@ -38,6 +45,20 @@ class NetworkClient private constructor(private val context: Context) {
     }
 
     private val preferences: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+
+    init {
+        // Immediately validate and clean cache when NetworkClient is created
+        validateAndCleanCache()
+    }
+
+    private fun validateAndCleanCache() {
+        try {
+            // Always clear cached URL to prioritize AppConfig
+            preferences.edit().remove(KEY_BASE_URL).apply()
+        } catch (e: Exception) {
+            // Ignore errors during initialization cleanup
+        }
+    }
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
@@ -75,12 +96,6 @@ class NetworkClient private constructor(private val context: Context) {
                     jsonObject.addProperty("sessionStart", src.sessionStart)
                     jsonObject.addProperty("sessionEnd", src.sessionEnd)
                 }
-                is AnalyticsData.AppTap -> {
-                    jsonObject.addProperty("eventType", src.eventType)
-                    jsonObject.addProperty("timestamp", src.timestamp)
-                    jsonObject.addProperty("appName", src.appName)
-                    jsonObject.addProperty("packageName", src.packageName)
-                }
                 is AnalyticsData.Intervention -> {
                     jsonObject.addProperty("eventType", src.eventType)
                     jsonObject.addProperty("interventionStart", src.interventionStart)
@@ -116,23 +131,47 @@ class NetworkClient private constructor(private val context: Context) {
         .registerTypeAdapter(AnalyticsData::class.java, analyticsDataSerializer)
         .create()
 
-    private val retrofit = Retrofit.Builder()
-        .baseUrl(getBaseUrl())
-        .client(okHttpClient)
-        .addConverterFactory(GsonConverterFactory.create(gson))
-        .build()
+    // Make retrofit mutable so we can recreate it
+    private var retrofit = createRetrofit()
 
-    val apiService: ApiService = retrofit.create(ApiService::class.java)
+    val apiService: ApiService get() = retrofit.create(ApiService::class.java)
+
+    private fun createRetrofit(): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl(getBaseUrl())
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create(gson))
+            .build()
+    }
 
     fun getBaseUrl(): String {
-        // First check if there's a custom URL stored
+        // Always prioritize AppConfig URL first (this ensures build-time changes take precedence)
+        val configUrl = try {
+            AppConfig.getServerUrl(context)
+        } catch (e: Exception) {
+            null
+        }
+
+        if (!configUrl.isNullOrEmpty()) {
+            // If cached URL doesn't match config, clear cache and use config
+            val cachedUrl = preferences.getString(KEY_BASE_URL, null)
+            if (cachedUrl != configUrl) {
+                preferences.edit().remove(KEY_BASE_URL).apply()
+            }
+            return configUrl
+        }
+
+        // Only fall back to cached URL if no config URL is available
         val storedUrl = preferences.getString(KEY_BASE_URL, null)
-        if (!storedUrl.isNullOrEmpty() && storedUrl != "http://54.149.247.183:8080/") {
+        if (!storedUrl.isNullOrEmpty()) {
             return storedUrl
         }
 
-        // Otherwise use AppConfig to determine the appropriate URL
-        return AppConfig.getServerUrl(context)
+        // If no URL is configured anywhere, throw an error
+        throw IllegalStateException(
+            "No server URL configured! Please configure a server URL in AppConfig. " +
+            "The IP address may change frequently, so explicit configuration is required."
+        )
     }
 
     fun setBaseUrl(url: String) {
@@ -159,10 +198,14 @@ class NetworkClient private constructor(private val context: Context) {
             ?: AppConfig.ServerEnvironment.CUSTOM
     }
 
+    fun clearCachedUrl() {
+        preferences.edit().remove(KEY_BASE_URL).apply()
+        // This will force the app to use the default configuration from AppConfig
+        recreateRetrofit()
+    }
+
     private fun recreateRetrofit() {
-        // This would require reconstructing the retrofit instance
-        // For now, the app would need to be restarted for URL changes to take effect
-        // In a production app, you might want to implement dynamic URL switching
+        retrofit = createRetrofit()
     }
 
     fun getDeviceId(): String {
