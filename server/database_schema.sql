@@ -13,17 +13,6 @@ CREATE TABLE app_sessions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- App Taps Table
-CREATE TABLE app_taps (
-    id SERIAL PRIMARY KEY,
-    device_id VARCHAR(255) NOT NULL,
-    user_id VARCHAR(255),
-    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-    app_name VARCHAR(255) NOT NULL,
-    package_name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
 -- Interventions Table
 CREATE TABLE interventions (
     id SERIAL PRIMARY KEY,
@@ -67,14 +56,34 @@ CREATE TABLE daily_summaries (
 -- Create indexes for better performance
 CREATE INDEX idx_app_sessions_device_id ON app_sessions(device_id);
 CREATE INDEX idx_app_sessions_created_at ON app_sessions(created_at);
-CREATE INDEX idx_app_taps_device_id ON app_taps(device_id);
-CREATE INDEX idx_app_taps_timestamp ON app_taps(timestamp);
 CREATE INDEX idx_interventions_device_id ON interventions(device_id);
 CREATE INDEX idx_interventions_created_at ON interventions(created_at);
 CREATE INDEX idx_device_status_device_id ON device_status(device_id);
 CREATE INDEX idx_device_status_created_at ON device_status(created_at);
 CREATE INDEX idx_daily_summaries_device_id ON daily_summaries(device_id);
 CREATE INDEX idx_daily_summaries_date ON daily_summaries(date);
+
+-- Add unique constraints to prevent duplicate data
+-- Prevent exact duplicate app sessions
+ALTER TABLE app_sessions 
+ADD CONSTRAINT unique_app_session 
+UNIQUE (device_id, package_name, session_start, session_end);
+
+-- Prevent exact duplicate interventions
+ALTER TABLE interventions 
+ADD CONSTRAINT unique_intervention 
+UNIQUE (device_id, app_name, intervention_start, intervention_end, intervention_type);
+
+-- Prevent duplicate daily summaries for same device and date
+ALTER TABLE daily_summaries 
+ADD CONSTRAINT unique_daily_summary 
+UNIQUE (device_id, date);
+
+-- Device status can have multiple entries per device (for tracking over time)
+-- but prevent exact duplicates at the same timestamp
+ALTER TABLE device_status 
+ADD CONSTRAINT unique_device_status 
+UNIQUE (device_id, battery_level, is_charging, connection_type, connection_strength, created_at);
 
 -- Grant permissions to the onesec_user
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO onesec_user;

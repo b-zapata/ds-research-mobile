@@ -4,7 +4,29 @@ This guide explains how to configure your OneSecClone app to connect to differen
 
 ## Quick Setup
 
-### Option 1: Environment Variables (Recommended for Development)
+### Option 1: Automated IP Updates (Fastest)
+
+For quick IP address changes, use the automation scripts:
+
+**Windows (PowerShell):**
+
+```powershell
+.\scripts\update_server_ip.ps1 "44.247.94.119"
+```
+
+**Linux/macOS (Bash):**
+
+```bash
+./scripts/update_server_ip.sh "44.247.94.119"
+```
+
+These scripts automatically update:
+
+- `app/src/main/java/.../AppConfig.kt` - Updates SERVER_IP constant
+- `app/build.gradle.kts` - Updates BuildConfig SERVER_URL
+- `app/src/main/res/xml/network_security_config.xml` - Updates domain whitelist
+
+### Option 2: Environment Variables (Recommended for Development)
 
 Set these environment variables on your development machine:
 
@@ -12,7 +34,7 @@ Set these environment variables on your development machine:
 # For development (debug builds)
 export DEV_SERVER_URL="http://YOUR_EC2_IP:8080/"
 
-# For staging builds  
+# For staging builds
 export STAGING_SERVER_URL="https://staging.your-domain.com/"
 
 # For production builds
@@ -23,6 +45,7 @@ export API_KEY="your-api-key-here"
 ```
 
 **Windows (Command Prompt):**
+
 ```cmd
 set DEV_SERVER_URL=http://YOUR_EC2_IP:8080/
 set STAGING_SERVER_URL=https://staging.your-domain.com/
@@ -30,20 +53,22 @@ set PROD_SERVER_URL=https://your-domain.com/
 ```
 
 **Windows (PowerShell):**
+
 ```powershell
 $env:DEV_SERVER_URL="http://YOUR_EC2_IP:8080/"
 $env:STAGING_SERVER_URL="https://staging.your-domain.com/"
 $env:PROD_SERVER_URL="https://your-domain.com/"
 ```
 
-### Option 2: In-App Configuration
+### Option 3: In-App Configuration
 
 The app includes a settings screen where users can:
+
 1. Choose from predefined environments (Production, Staging, Local)
 2. Enter a custom server URL
 3. View the current server configuration
 
-### Option 3: Direct Code Configuration
+### Option 4: Direct Code Configuration
 
 Update the default URLs in `AppConfig.kt`:
 
@@ -64,6 +89,7 @@ The app now supports three build types:
 ## Current Configuration Priority
 
 The app determines the server URL in this order:
+
 1. Custom URL set by user in the app
 2. Environment variable for the current build type
 3. Default URL defined in AppConfig.kt
@@ -71,6 +97,7 @@ The app determines the server URL in this order:
 ## Changing Server at Runtime
 
 Users can change the server URL without rebuilding the app:
+
 1. Open the app settings
 2. Navigate to "Server Settings"
 3. Choose a predefined environment or enter a custom URL
@@ -81,6 +108,7 @@ Users can change the server URL without rebuilding the app:
 Set environment variables in your build system:
 
 **GitHub Actions:**
+
 ```yaml
 env:
   DEV_SERVER_URL: ${{ secrets.DEV_SERVER_URL }}
@@ -89,6 +117,7 @@ env:
 ```
 
 **Docker:**
+
 ```dockerfile
 ENV DEV_SERVER_URL=http://your-ec2-ip:8080/
 ENV PROD_SERVER_URL=https://your-domain.com/
@@ -98,21 +127,35 @@ ENV PROD_SERVER_URL=https://your-domain.com/
 
 To test against different servers during development:
 
-1. **Quick switch via environment:**
+1. **Quick IP change with automation:**
+
+   ```powershell
+   # Windows
+   .\scripts\update_server_ip.ps1 "new-ec2-ip"
+   ```
+
+   ```bash
+   # Linux/macOS
+   ./scripts/update_server_ip.sh "new-ec2-ip"
+   ```
+
+2. **Switch via environment variables:**
+
    ```bash
    export DEV_SERVER_URL="http://new-ec2-ip:8080/"
    ./gradlew assembleDebug
    ```
 
-2. **Switch via app settings:**
+3. **Switch via app settings:**
+
    - Open app → Settings → Server Settings
    - Select "Custom" and enter new URL
    - Test immediately without rebuilding
 
-3. **Build-specific URLs:**
+4. **Build-specific URLs:**
    ```bash
    ./gradlew assembleDebug     # Uses DEV_SERVER_URL
-   ./gradlew assembleStaging   # Uses STAGING_SERVER_URL  
+   ./gradlew assembleStaging   # Uses STAGING_SERVER_URL
    ./gradlew assembleRelease   # Uses PROD_SERVER_URL
    ```
 
@@ -122,6 +165,9 @@ To test against different servers during development:
 - **"Invalid URL"**: Ensure the URL includes protocol (http:// or https://)
 - **Build errors**: Make sure environment variables are set correctly
 - **App not connecting**: Check the current URL in app settings
+- **Script not working**: Ensure you're running from project root and have proper permissions
+
+For automation script issues, see `scripts/README.md` for detailed usage instructions.
 
 ## Security Notes
 

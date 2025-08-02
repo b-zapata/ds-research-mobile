@@ -2,6 +2,7 @@ package com.example.onesecclone.analytics
 
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 sealed class AnalyticsData {
     companion object {
@@ -18,6 +19,7 @@ sealed class AnalyticsData {
 
     data class AppSession(
         val eventType: String = "app_session",
+        val sessionId: String = UUID.randomUUID().toString(), // Unique identifier for this session
         val appName: String,
         val packageName: String,
         val sessionStart: String,
@@ -29,6 +31,7 @@ sealed class AnalyticsData {
             sessionStart: ZonedDateTime,
             sessionEnd: ZonedDateTime
         ) : this(
+            sessionId = UUID.randomUUID().toString(),
             appName = appName,
             packageName = packageName,
             sessionStart = formatTimestamp(sessionStart),
@@ -39,27 +42,9 @@ sealed class AnalyticsData {
         fun getSessionEndTime(): ZonedDateTime = parseTimestamp(sessionEnd)
     }
 
-    data class AppTap(
-        val eventType: String = "app_tap",
-        val timestamp: String,
-        val appName: String,
-        val packageName: String
-    ) : AnalyticsData() {
-        constructor(
-            timestamp: ZonedDateTime,
-            appName: String,
-            packageName: String
-        ) : this(
-            timestamp = formatTimestamp(timestamp),
-            appName = appName,
-            packageName = packageName
-        )
-
-        fun getTimestamp(): ZonedDateTime = parseTimestamp(timestamp)
-    }
-
     data class Intervention(
         val eventType: String = "intervention",
+        val interventionId: String = UUID.randomUUID().toString(), // Unique identifier for this intervention
         val interventionStart: String,
         val interventionEnd: String,
         val appName: String,
@@ -77,6 +62,7 @@ sealed class AnalyticsData {
             requiredWatchTime: Int? = null,
             buttonClicked: String
         ) : this(
+            interventionId = UUID.randomUUID().toString(),
             interventionStart = formatTimestamp(interventionStart),
             interventionEnd = formatTimestamp(interventionEnd),
             appName = appName,
@@ -92,6 +78,7 @@ sealed class AnalyticsData {
 
     data class DeviceStatus(
         val eventType: String = "device_status",
+        val statusId: String = UUID.randomUUID().toString(), // Unique identifier for this status reading
         val batteryLevel: Int,
         val isCharging: Boolean,
         val connectionType: String,
@@ -107,6 +94,7 @@ sealed class AnalyticsData {
             appVersion: String,
             lastBatchSent: ZonedDateTime
         ) : this(
+            statusId = UUID.randomUUID().toString(),
             batteryLevel = batteryLevel,
             isCharging = isCharging,
             connectionType = connectionType,
@@ -120,6 +108,7 @@ sealed class AnalyticsData {
 
     data class DailySummary(
         val eventType: String = "daily_summary",
+        val summaryId: String = UUID.randomUUID().toString(), // Unique identifier for this daily summary
         val date: String,
         val totalScreenTime: Int,
         val appTotals: Map<String, AppStats>

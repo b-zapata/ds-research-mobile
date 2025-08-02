@@ -51,6 +51,12 @@ class DataFlowTestActivity : AppCompatActivity() {
         btnClearQueue.setOnClickListener { clearOfflineQueue() }
         btnShowStatus.setOnClickListener { showCurrentStatus() }
 
+        // Add long press to clear cached URL
+        btnShowStatus.setOnLongClickListener {
+            clearCachedUrl()
+            true
+        }
+
         // Show initial status
         showCurrentStatus()
     }
@@ -87,11 +93,6 @@ class DataFlowTestActivity : AppCompatActivity() {
             try {
                 // Create test data for each type
                 val testData = listOf(
-                    AnalyticsData.AppTap(
-                        timestamp = ZonedDateTime.now(),
-                        appName = "Test App",
-                        packageName = "com.test.app"
-                    ),
                     AnalyticsData.DeviceStatus(
                         batteryLevel = 85,
                         isCharging = false,
@@ -108,6 +109,12 @@ class DataFlowTestActivity : AppCompatActivity() {
                         videoDuration = 5000,
                         requiredWatchTime = 3000,
                         buttonClicked = "continue"
+                    ),
+                    AnalyticsData.AppSession(
+                        appName = "Test Session",
+                        packageName = "com.test.session",
+                        sessionStart = ZonedDateTime.now().minusMinutes(5),
+                        sessionEnd = ZonedDateTime.now()
                     )
                 )
 
@@ -115,10 +122,10 @@ class DataFlowTestActivity : AppCompatActivity() {
                 for ((index, data) in testData.withIndex()) {
                     val eventType = when (data) {
                         is AnalyticsData.AppSession -> data.eventType
-                        is AnalyticsData.AppTap -> data.eventType
                         is AnalyticsData.Intervention -> data.eventType
                         is AnalyticsData.DeviceStatus -> data.eventType
                         is AnalyticsData.DailySummary -> data.eventType
+                        else -> "unknown"
                     }
                     updateLog("   Sending $eventType (${index + 1}/${testData.size})")
                     val success = dataSyncService.sendDataWithRetry(data)
@@ -153,21 +160,6 @@ class DataFlowTestActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val batchData = listOf(
-                    AnalyticsData.AppTap(
-                        timestamp = ZonedDateTime.now().minusMinutes(5),
-                        appName = "Batch Test 1",
-                        packageName = "com.batch.test1"
-                    ),
-                    AnalyticsData.AppTap(
-                        timestamp = ZonedDateTime.now().minusMinutes(4),
-                        appName = "Batch Test 2",
-                        packageName = "com.batch.test2"
-                    ),
-                    AnalyticsData.AppTap(
-                        timestamp = ZonedDateTime.now().minusMinutes(3),
-                        appName = "Batch Test 3",
-                        packageName = "com.batch.test3"
-                    ),
                     AnalyticsData.AppSession(
                         appName = "Batch Session Test",
                         packageName = "com.batch.session",
@@ -213,6 +205,18 @@ class DataFlowTestActivity : AppCompatActivity() {
         updateLog("   Offline queue size: ${dataSyncService.getQueueSize()}")
         updateLog("   Server URL: ${dataSyncService.networkClient.getBaseUrl()}")
         updateLog("   Device ID: ${dataSyncService.networkClient.getDeviceId()}")
+    }
+
+    private fun clearCachedUrl() {
+        updateLog("🧹 Clearing cached URL...")
+        try {
+            dataSyncService.networkClient.clearCachedUrl()
+            updateLog("✅ Cached URL cleared")
+            Toast.makeText(this, "Cached URL cleared", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            updateLog("❌ Failed to clear cached URL: ${e.message}")
+            Log.e(TAG, "Failed to clear cached URL", e)
+        }
     }
 
     private fun updateLog(message: String) {

@@ -1,12 +1,44 @@
 # EC2 Deployment Guide for OneSecClone
 
-This guide covers multiple ways to deploy your OneSecClone server to EC2, from manual SSH deployment to automated CI/CD.
+This guide covers deploying your OneSecClone server to EC2, including the new duplicate prevention system.
+
+## Current Server Status (August 2, 2025)
+
+**✅ Server Running**: `44.247.94.119:8080`  
+**✅ Database**: PostgreSQL with 4-table schema + duplicate prevention  
+**✅ Environment**: Production-ready configuration  
+**🛡️ Duplicate Prevention**: Ready for deployment (Aug 2, 2025)
+
+## Database Schema (Current)
+
+- `app_sessions` - App usage tracking
+- `interventions` - Video interruption events
+- `device_status` - Device health monitoring
+- `daily_summaries` - Daily usage aggregates
+
+## For Duplicate Prevention Deployment
+
+**🚨 IMPORTANT**: If you're deploying the new duplicate prevention system, follow this guide instead:
+📖 **`DUPLICATE_PREVENTION_DEPLOYMENT.md`** (in this same directory)
+
+This guide covers:
+
+- Three-layer duplicate prevention system
+- Database migration steps
+- Server code updates
+- Testing and verification
+
+## Standard Deployment (Non-Duplicate Prevention)
 
 ## Prerequisites
 
-1. **EC2 Instance**: Ubuntu 20.04+ LTS (recommended)
-2. **Security Group**: Allow inbound traffic on port 8080 (or your chosen port) and SSH (port 22)
+1. **EC2 Instance**: Amazon Linux 2 or Ubuntu 20.04+ LTS
+2. **Security Group**: Allow inbound traffic on port 8080 and SSH (port 22)
 3. **Key Pair**: Your EC2 instance key pair (.pem file)
+4. **Current Credentials**:
+   - SSH Key: `C:\Users\bzapa\OneDrive\Desktop\Research\pem_files\ds_research.pem`
+   - Username: `ec2-user`
+   - IP: `44.247.94.119`
 
 ## Method 1: Manual SSH Deployment (Recommended for Development)
 
@@ -17,33 +49,27 @@ First, create a deployment package with all necessary files:
 ```bash
 # From your project root (C:\Users\bzapa\AndroidStudioProjects\OneSecClone)
 cd server
-tar -czf onesec-server.tar.gz server.js database_schema.sql package.json deploy.sh verify_data_flow.js
+tar -czf onesec-server.tar.gz server.js database_schema.sql package.json deploy.sh verify_data_flow.js DATABASE_SCHEMA.md
 ```
 
 ### Step 2: Connect to EC2 via SSH
 
 #### Using Windows Command Prompt:
+
 ```cmd
-ssh -i "path\to\your-key.pem" ubuntu@your-ec2-public-ip
+ssh -i "C:\Users\bzapa\OneDrive\Desktop\Research\pem_files\ds_research.pem" ec2-user@44.247.94.119
 ```
-
-#### Using WSL or Git Bash:
-```bash
-ssh -i "/path/to/your-key.pem" ubuntu@your-ec2-public-ip
-```
-
-#### Using PuTTY (Windows):
-1. Convert .pem to .ppk using PuTTYgen
-2. Use PuTTY with the .ppk key
 
 ### Step 3: Upload and Deploy
 
 #### Option A: SCP Upload (from local machine)
+
 ```bash
-scp -i "your-key.pem" onesec-server.tar.gz ubuntu@your-ec2-ip:~/
+scp -i "C:\Users\bzapa\OneDrive\Desktop\Research\pem_files\ds_research.pem" onesec-server.tar.gz ec2-user@44.247.94.119:~/
 ```
 
 #### Option B: Direct Git Clone (on EC2)
+
 ```bash
 # On your EC2 instance
 git clone https://github.com/your-username/your-repo.git
@@ -51,6 +77,7 @@ cd your-repo/server
 ```
 
 ### Step 4: Run Deployment Script
+
 ```bash
 # On your EC2 instance
 tar -xzf onesec-server.tar.gz  # if using SCP
@@ -88,6 +115,7 @@ pause
 ## Method 3: Using AWS CLI and CodeDeploy
 
 ### Setup AWS CLI
+
 ```bash
 # Install AWS CLI
 pip install awscli
@@ -97,6 +125,7 @@ aws configure
 ```
 
 ### Create CodeDeploy Application
+
 ```bash
 aws deploy create-application --application-name OneSecClone --compute-platform Server
 ```
@@ -104,6 +133,7 @@ aws deploy create-application --application-name OneSecClone --compute-platform 
 ## Method 4: Docker Deployment
 
 ### Create Dockerfile
+
 ```dockerfile
 FROM node:18-alpine
 
@@ -120,6 +150,7 @@ CMD ["node", "server.js"]
 ```
 
 ### Deploy with Docker
+
 ```bash
 # Build and push to ECR or Docker Hub
 docker build -t onesec-server .
@@ -134,11 +165,13 @@ docker run -d -p 8080:8080 --env-file .env onesec-server:latest
 ## Quick SSH Commands Reference
 
 ### Basic Connection
+
 ```bash
 ssh -i "your-key.pem" ubuntu@your-ec2-ip
 ```
 
 ### File Transfer
+
 ```bash
 # Upload single file
 scp -i "your-key.pem" localfile.txt ubuntu@your-ec2-ip:~/
@@ -151,6 +184,7 @@ scp -i "your-key.pem" ubuntu@your-ec2-ip:~/remote-file.txt ./
 ```
 
 ### Remote Commands
+
 ```bash
 # Run single command
 ssh -i "your-key.pem" ubuntu@your-ec2-ip "sudo systemctl status onesec-server"
@@ -162,6 +196,7 @@ ssh -i "your-key.pem" ubuntu@your-ec2-ip "cd ~/server && ./deploy.sh status"
 ## Troubleshooting SSH
 
 ### Permission Issues
+
 ```bash
 # Fix key permissions (Linux/WSL)
 chmod 400 your-key.pem
@@ -171,6 +206,7 @@ icacls "your-key.pem" /inheritance:r /grant:r "%username%:R"
 ```
 
 ### Connection Issues
+
 1. **Security Group**: Ensure port 22 is open for your IP
 2. **Key Pair**: Verify you're using the correct .pem file
 3. **Instance State**: Ensure EC2 instance is running
@@ -179,16 +215,19 @@ icacls "your-key.pem" /inheritance:r /grant:r "%username%:R"
 ## Post-Deployment Verification
 
 ### Check Server Status
+
 ```bash
 ssh -i "your-key.pem" ubuntu@your-ec2-ip "./deploy.sh status"
 ```
 
 ### Monitor Real-time Data
+
 ```bash
 ssh -i "your-key.pem" ubuntu@your-ec2-ip "cd ~/server && node verify_data_flow.js --monitor"
 ```
 
 ### View Logs
+
 ```bash
 ssh -i "your-key.pem" ubuntu@your-ec2-ip "./deploy.sh logs"
 ```
